@@ -95,6 +95,93 @@
         </div>
       </section>
 
+
+      <section class="panel journey-planner" id="journeyPlanner">
+        <div class="planner-title-row">
+          <div>
+            <span class="section-kicker">Routeplanner</span>
+            <h2>Plan je reis</h2>
+            <p>De Lijn-dienstregeling, haltes en live vertrekcontrole in één overzicht.</p>
+          </div>
+          <span class="planner-data-pill" id="plannerDataPill"><i></i><span>Dienstregeling nog niet geladen</span></span>
+        </div>
+
+        <div class="journey-card">
+          <div class="journey-inputs">
+            <div class="journey-point from"></div>
+            <label class="journey-field">
+              <span>Van</span>
+              <input id="plannerFrom" autocomplete="off" placeholder="Zoek vertrekhalte…" />
+              <button type="button" class="journey-location" id="plannerUseLocation" aria-label="Gebruik mijn locatie">
+                <svg viewBox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
+              </button>
+              <div class="planner-suggestions hidden" id="plannerFromResults"></div>
+            </label>
+
+            <button type="button" class="journey-swap" id="plannerSwap" aria-label="Wissel vertrek en bestemming">
+              <svg viewBox="0 0 24 24"><path d="M7 4v14"></path><path d="m3 14 4 4 4-4"></path><path d="M17 20V6"></path><path d="m13 10 4-4 4 4"></path></svg>
+            </button>
+
+            <div class="journey-point to"></div>
+            <label class="journey-field">
+              <span>Naar</span>
+              <input id="plannerTo" autocomplete="off" placeholder="Zoek bestemmingshalte…" />
+              <button type="button" class="journey-clear" id="plannerClearTo" aria-label="Wis bestemming">×</button>
+              <div class="planner-suggestions hidden" id="plannerToResults"></div>
+            </label>
+          </div>
+
+          <div class="journey-options">
+            <div class="planner-segmented" id="plannerMode">
+              <button type="button" class="active" data-mode="now">Nu</button>
+              <button type="button" data-mode="depart">Vertrek</button>
+              <button type="button" data-mode="arrive">Aankomst</button>
+            </div>
+
+            <div class="date-time-wrap hidden" id="plannerDateTimeWrap">
+              <input type="date" id="plannerDate" />
+              <input type="time" id="plannerTime" />
+            </div>
+
+            <button type="button" class="planner-pref" id="plannerPref" data-pref="fastest">
+              <svg viewBox="0 0 24 24"><path d="M12 3v18M5 8l7-5 7 5"></path></svg>
+              <span>Snelste</span>
+            </button>
+          </div>
+
+          <button type="button" class="journey-plan-button" id="plannerGo">
+            <span class="journey-plan-copy">
+              <small>De Lijn</small>
+              <strong>Zoek routes</strong>
+            </span>
+            <span class="journey-plan-arrow">→</span>
+          </button>
+        </div>
+
+        <div class="planner-progress hidden" id="plannerProgress">
+          <div class="planner-progress-top">
+            <span id="plannerProgressLabel">Dienstregeling voorbereiden…</span>
+            <strong id="plannerProgressPct">0%</strong>
+          </div>
+          <div class="planner-progress-track"><i id="plannerProgressBar"></i></div>
+          <small id="plannerProgressDetail">De eerste routezoekopdracht kan wat langer duren.</small>
+        </div>
+
+        <div class="planner-error hidden" id="plannerError">
+          <span>!</span>
+          <div><strong>Routeplanner kon niet starten</strong><small id="plannerErrorText"></small></div>
+          <button id="plannerRetry" type="button">Opnieuw</button>
+        </div>
+
+        <div class="planner-results hidden" id="plannerResults">
+          <div class="planner-results-head">
+            <div><span class="section-kicker">Reisadvies</span><h3 id="plannerResultsTitle">Routes</h3></div>
+            <span id="plannerResultsMeta"></span>
+          </div>
+          <div id="plannerResultCards" class="planner-result-cards"></div>
+        </div>
+      </section>
+
       <section class="stats-grid">
         <article class="stat-card">
           <span class="stat-icon green">
@@ -348,5 +435,6 @@
   <script src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
+  <script src="planner.js"></script>
 </body>
 </html>

@@ -773,6 +773,57 @@
     });
   });
 
+
+  function showPlannerRouteOnMap(itinerary) {
+    if (!state.map || !itinerary) return;
+    const coords = [];
+    for (const leg of itinerary.legs || []) {
+      if (leg.type === "transit" && Array.isArray(leg.coordinates)) {
+        for (const point of leg.coordinates) {
+          if (Array.isArray(point) && point.length >= 2) coords.push([Number(point[0]), Number(point[1])]);
+        }
+      }
+    }
+    if (coords.length < 2) return;
+
+    const data = { type:"Feature", properties:{}, geometry:{ type:"LineString", coordinates:coords } };
+    if (state.map.getSource("ovflow-planner-route")) {
+      state.map.getSource("ovflow-planner-route").setData(data);
+    } else {
+      state.map.addSource("ovflow-planner-route", { type:"geojson", data });
+      state.map.addLayer({
+        id:"ovflow-planner-route-glow", type:"line", source:"ovflow-planner-route",
+        paint:{ "line-color":"#63efb1", "line-width":10, "line-opacity":0.18 }
+      });
+      state.map.addLayer({
+        id:"ovflow-planner-route-line", type:"line", source:"ovflow-planner-route",
+        paint:{ "line-color":"#63efb1", "line-width":5, "line-opacity":0.95 }
+      });
+    }
+    const bounds = new maplibregl.LngLatBounds();
+    coords.forEach(c => bounds.extend(c));
+    state.map.fitBounds(bounds, { padding:65, maxZoom:15.5, duration:750 });
+    document.querySelector(".real-map-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
+  }
+
+  function clearPlannerRouteOnMap() {
+    if (!state.map) return;
+    if (state.map.getLayer("ovflow-planner-route-line")) state.map.removeLayer("ovflow-planner-route-line");
+    if (state.map.getLayer("ovflow-planner-route-glow")) state.map.removeLayer("ovflow-planner-route-glow");
+    if (state.map.getSource("ovflow-planner-route")) state.map.removeSource("ovflow-planner-route");
+  }
+
+  window.OVFlowBridge = {
+    ensureStopsLoaded,
+    searchStops,
+    getStops: () => state.stops,
+    getMap: () => state.map,
+    showPlannerRouteOnMap,
+    clearPlannerRouteOnMap,
+    toast,
+    escapeHTML
+  };
+
   updateStopUI();
   updateClock();
   setInterval(updateClock, 1000);

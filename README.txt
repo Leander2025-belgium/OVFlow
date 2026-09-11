@@ -1,44 +1,39 @@
-OVFlow v3.1 — HALTEZOEKER + ECHTE KAART + LIVE DOORKOMSTEN
+OVFlow v4 — ROUTEPLANNER
 
-Nieuw in v3.1
-- Zoek De Lijn-haltes op naam, gemeente, straat of andere haltevelden.
-- Haltezoeker gebruikt de publieke WFS Haltes De Lijn van Digitaal Vlaanderen.
-- Echte interactieve OpenStreetMap-kaart via MapLibre.
-- Haltemarkers op de kaart.
-- Tik op een halte op de kaart en kies "Bekijk doorkomsten".
-- Knop "Rond mij" gebruikt de browserlocatie en toont nabijgelegen haltes.
-- Geselecteerde halte wordt opgeslagen in de browser.
-- Live doorkomsten blijven rechtstreeks uit de De Lijn Core API komen.
-- Automatische refresh om de 30 seconden.
-- Geen demo-data wanneer een API mislukt.
+Nieuw:
+- echte routeplanner op basis van officiële De Lijn GTFS Static data
+- vertrek- en bestemmingshalte zoeken
+- huidige locatie als vertrekpunt (dichtstbijzijnde halte)
+- Nu / Vertrek / Aankomst
+- snelste route / minste overstappen
+- directe ritten + routes met 1 overstap
+- reisduur, overstappen, haltes en wachttijd
+- eerste vertrek wordt waar mogelijk gecontroleerd met De Lijn Core realtime API
+- route wordt op de bestaande echte OpenStreetMap-kaart getekend
+- zware GTFS-berekeningen draaien in route-worker.js zodat de UI responsief blijft
 
-Bestanden
+Start lokaal:
+  cd OVFlow-v4
+  python -m http.server 8080
+Open:
+  http://localhost:8080
+
+Belangrijk:
+De eerste routezoekopdracht moet de De Lijn GTFS-feed downloaden en indexeren. Dat is een grotere dataset en kan op een telefoon merkbaar duren. Binnen dezelfde sessie worden de geladen data hergebruikt.
+
+Bestanden:
 - index.html
 - style.css
 - app.js
+- planner.js
+- route-worker.js
 - config.js
 - README.txt
 
-Starten zonder eigen backend
-Gebruik bij voorkeur een lokale webserver:
+Databronnen:
+- De Lijn Core API: realtime doorkomsten
+- Belgian Mobility GTFS Static: dienstregeling / trips / stop_times
+- Digitaal Vlaanderen WFS: haltezoeker / haltecoördinaten
+- OpenStreetMap + MapLibre: kaart
 
-  cd OVFlow-v3.1
-  python -m http.server 8080
-
-Open daarna:
-  http://localhost:8080
-
-Waarom niet gewoon dubbelklikken?
-Sommige browsers beperken fetch/CORS/API-verzoeken vanuit file://.
-
-Kaart
-OVFlow gebruikt MapLibre GL JS met OpenStreetMap rastertiles.
-De haltepunten worden geladen uit:
-https://geo.api.vlaanderen.be/Haltes/wfs
-Layer: Haltes:Halte
-
-Live doorkomsten
-OVFlow gebruikt daarna het De Lijn Core realtime-endpoint voor de gekozen halte.
-
-Belangrijk
-Dit is nog een browser-only testversie. De API-sleutels staan in config.js en zijn dus zichtbaar voor iemand die de bestanden kan bekijken. Publiceer deze versie niet met je huidige sleutels. Voor een publieke release moet de De Lijn API via je eigen backend/proxy lopen.
+Deze versie werkt nog zonder eigen OVFlow-backend. Daardoor blijven API-sleutels in config.js zichtbaar. Voor een publieke release moeten die naar de server verhuizen.

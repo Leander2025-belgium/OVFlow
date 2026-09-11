@@ -19,5 +19,8 @@ window.OVFLOW_CONFIG = {
   // Publieke geografische halteservice van Digitaal Vlaanderen.
   HALTES_WFS_URL: "https://geo.api.vlaanderen.be/Haltes/wfs",
   HALTES_WFS_TYPENAME: "Haltes:Halte",
-  HALTES_BATCH_SIZE: 10000
+  HALTES_BATCH_SIZE: 10000,
+
+  // Officiële Belgische mobiliteitsfeed met de statische De Lijn-dienstregeling.
+  GTFS_STATIC_URL: "https://opendata-discovery-gtfs-static.api.production.belgianmobility.io/api/gtfs/feed/delijn/static"
 };
