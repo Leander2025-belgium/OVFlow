@@ -1,37 +1,44 @@
-OVFlow v5 — INTERNE LIVE ROUTEPLANNER
+OVFlow v6 — LIVE TRIP
 
-Deze versie stuurt de gebruiker NIET meer door naar De Lijn, Google Maps of 9292.
+Nieuw:
+- Start Live Trip rechtstreeks op een bus/tram/trein-leg uit de routeplanner.
+- GPS volgt jouw positie terwijl je in het voertuig zit.
+- OVFlow toont continu de volgende halte.
+- Nog aantal haltes tot uitstappen.
+- Verwachte tijd bij de volgende halte.
+- Verwachte aankomst bij jouw uitstaphalte.
+- GPS-afstand tot de volgende halte.
+- Snelheid en GPS-nauwkeurigheid.
+- Voortgangsbalk over de volledige rit.
+- Lijst van komende haltes.
+- Uitstapwaarschuwingen:
+  * Volgende halte: uitstappen
+  * Maak je klaar om uit te stappen
+  * Nu uitstappen
+- Trilling waar de browser dit ondersteunt.
+- Live Trip op de bestaande kaart:
+  * route van het voertuig
+  * jouw actuele GPS-positie
+  * volgende halte
+  * kaart kan je positie automatisch volgen
+- Als GPS tijdelijk niet werkt, valt Live Trip terug op de tijden van de tussenhaltes.
+- Indien een tripId beschikbaar is, vernieuwt OVFlow de ritinformatie om de 60 seconden.
+- Optioneel Screen Wake Lock zodat het scherm tijdens Live Trip wakker kan blijven.
 
-Werking:
-- Haltes zoeken gebeurt in OVFlow.
-- Je kiest vertrek + bestemming.
-- Je kiest Nu / Vertrek / Aankomst.
-- OVFlow vraagt één reisadvies op bij de open-source MOTIS-route-engine van Transitous.
-- De volledige resultaten worden binnen OVFlow weergegeven.
-- Wandelstukken, bus/tram/trein, overstappen, tijden en realtime-info worden getoond.
-- 'Toon op kaart' tekent de geometrie van het reisadvies op de bestaande OVFlow-kaart.
-- Er is geen grote GTFS-download op de iPhone nodig.
+BELANGRIJK
+Deze browserversie volgt jouw telefoon. Omdat je telefoon in de bus/tram/trein zit,
+is jouw GPS-positie in de praktijk de positie waarmee OVFlow jouw voortgang op de rit bepaalt.
 
-Route API:
-https://api.transitous.org/api/v6/plan
+iPhone/Safari kan locatie-updates vertragen wanneer de app niet zichtbaar is of het scherm
+wordt vergrendeld. Live Trip werkt daarom het betrouwbaarst terwijl OVFlow open staat.
 
-OVFlow gebruikt o.a.:
-- TRANSIT + WALK
-- realtimeMode=REALTIME
-- detailedLegs=true
-- routed transfers
-- max 4 overstappen bij 'Snelste'
-- max 2 overstappen bij 'Minst overstappen'
-
-Transitous:
-Dit is geschikt voor ontwikkeling/prototyping van een open-source, niet-commercieel project.
-Voor een publieke app met veel gebruikers moet je de Transitous usage policy naleven
-en vooraf contact opnemen over routingbelasting.
-
-Bronvermelding:
-- Transitous / MOTIS
-- De Lijn open data
-- OpenStreetMap
+Gebruik:
+1. Plan een route.
+2. Klap een reisadvies open.
+3. Tik bij de bus/tram/trein op 'Live Trip'.
+4. Geef locatie-toegang.
+5. OVFlow toont automatisch de volgende halte.
+6. Tik 'Volg op kaart' voor de live kaartweergave.
 
 Start lokaal:
   python -m http.server 8080

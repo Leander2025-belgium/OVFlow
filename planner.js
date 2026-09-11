@@ -19,7 +19,23 @@
     geolocationOrigin: false,
     loading: false,
     lastQuery: null,
-    itineraries: []
+    itineraries: [],
+    live: {
+      active: false,
+      itineraryIndex: -1,
+      legIndex: -1,
+      leg: null,
+      stops: [],
+      nextIndex: 1,
+      position: null,
+      watchId: null,
+      tickTimer: null,
+      refreshTimer: null,
+      wakeLock: null,
+      followMap: false,
+      warnedReady: false,
+      warnedNow: false
+    }
   };
 
   const esc = bridge.escapeHTML || (v => String(v ?? ""));
@@ -281,6 +297,8 @@
     url.searchParams.set("maxDirectTime", "1800");
     url.searchParams.set("fastestDirectFactor", "10");
     url.searchParams.set("realtimeMode", "REALTIME");
+    url.searchParams.set("joinInterlinedLegs", "false");
+    url.searchParams.set("withScheduledSkippedStops", "true");
     url.searchParams.set("language", "nl");
     url.searchParams.set("algorithm", "PONG");
     return url;
@@ -416,10 +434,25 @@
     return [];
   }
 
+  function normalizePlace(place, fallbackName = "", fallbackArrival = null, fallbackDeparture = null) {
+    const p = place || {};
+    return {
+      name: stopName(p, fallbackName),
+      stopId: String(p.stopId || p.id || p.stop?.id || ""),
+      lat: Number(p.lat ?? p.latitude ?? p.stop?.lat),
+      lon: Number(p.lon ?? p.lng ?? p.longitude ?? p.stop?.lon),
+      arrival: p.arrival ?? p.expectedArrival ?? fallbackArrival ?? null,
+      departure: p.departure ?? p.expectedDeparture ?? fallbackDeparture ?? null,
+      scheduledArrival: p.scheduledArrival ?? null,
+      scheduledDeparture: p.scheduledDeparture ?? null,
+      track: p.track ?? p.scheduledTrack ?? ""
+    };
+  }
+
   function normalizeLeg(leg) {
     const mode = String(leg.mode || "WALK").toUpperCase();
-    const from = stopName(leg.from, "Vertrek");
-    const to = stopName(leg.to, "Bestemming");
+    const fromName = stopName(leg.from, "Vertrek");
+    const toName = stopName(leg.to, "Bestemming");
     const line =
       leg.routeShortName ||
       leg.route?.shortName ||
@@ -429,30 +462,49 @@
     const headsign = leg.headsign || leg.tripHeadsign || "";
     const start =
       leg.startTime ??
+      leg.departure ??
+      leg.expectedDeparture ??
       leg.scheduledStartTime ??
       leg.scheduledDeparture ??
-      leg.expectedDeparture ??
       null;
     const end =
       leg.endTime ??
+      leg.arrival ??
+      leg.expectedArrival ??
       leg.scheduledEndTime ??
       leg.scheduledArrival ??
-      leg.expectedArrival ??
       null;
+
+    const fromPlace = normalizePlace(leg.from, fromName, start, start);
+    const toPlace = normalizePlace(leg.to, toName, end, end);
+    const intermediateStops = Array.isArray(leg.intermediateStops)
+      ? leg.intermediateStops.map(stop => normalizePlace(stop))
+      : [];
+
+    const tripId =
+      leg.tripId ||
+      leg.trip?.tripId ||
+      leg.trip?.id ||
+      leg.trips?.[0]?.tripId ||
+      leg.trips?.[0]?.id ||
+      "";
 
     return {
       type: mode === "WALK" ? "walk" : "transit",
       mode,
-      from,
-      to,
+      from: fromName,
+      to: toName,
+      fromPlace,
+      toPlace,
       line: String(line || ""),
       headsign: String(headsign || ""),
+      tripId: String(tripId || ""),
       start,
       end,
       duration: Number(leg.duration || 0),
       distance: Number(leg.distance || 0),
       realtime: Boolean(leg.realTime || leg.realtime),
-      intermediateStops: Array.isArray(leg.intermediateStops) ? leg.intermediateStops : [],
+      intermediateStops,
       coordinates: geometryForLeg(leg)
     };
   }
@@ -532,7 +584,7 @@
     return `${(meters / 1000).toFixed(1).replace(".", ",")} km`;
   }
 
-  function legHTML(leg, index) {
+  function legHTML(leg, legIndex, routeIndex) {
     const transit = leg.type === "transit";
     const lineText = transit
       ? [modeLabel(leg.mode), leg.line].filter(Boolean).join(" ")
@@ -556,6 +608,11 @@
           </div>
           <span>${esc(detail)}</span>
           <small>${esc(leg.from)} → ${esc(leg.to)}</small>
+          ${transit ? `
+            <button type="button" class="route-live-trip-button" data-live-route="${routeIndex}" data-live-leg="${legIndex}">
+              <span class="live-trip-play">▶</span>
+              Live Trip
+            </button>` : ""}
         </div>
         <div class="route-leg-time">
           <strong>${timeText(leg.start)}</strong>
@@ -619,7 +676,7 @@
 
           <div class="route-details ${i === 0 ? "" : "hidden"}" id="routeDetails${i}">
             <div class="route-legs">
-              ${it.legs.map(legHTML).join("")}
+              ${it.legs.map((leg, legIndex) => legHTML(leg, legIndex, i)).join("")}
             </div>
             <div class="route-card-actions">
               <button type="button" class="route-map-button" data-map="${i}">
@@ -646,8 +703,552 @@
       });
     });
 
+    [...cards.querySelectorAll("[data-live-route][data-live-leg]")].forEach(button => {
+      button.addEventListener("click", () => {
+        startLiveTrip(Number(button.dataset.liveRoute), Number(button.dataset.liveLeg));
+      });
+    });
+
     $("#plannerResults").classList.remove("hidden");
     $("#plannerResults").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+
+  function liveStopTime(stop) {
+    return stop?.arrival ?? stop?.departure ?? stop?.scheduledArrival ?? stop?.scheduledDeparture ?? null;
+  }
+
+  function buildLiveStops(leg) {
+    const raw = [leg.fromPlace, ...(leg.intermediateStops || []), leg.toPlace]
+      .filter(Boolean)
+      .filter(stop =>
+        stop.name &&
+        Number.isFinite(Number(stop.lat)) &&
+        Number.isFinite(Number(stop.lon))
+      );
+
+    const deduped = [];
+    for (const stop of raw) {
+      const previous = deduped.at(-1);
+      const sameId = previous?.stopId && stop.stopId && previous.stopId === stop.stopId;
+      const samePlace =
+        previous &&
+        previous.name === stop.name &&
+        haversine(previous.lon, previous.lat, stop.lon, stop.lat) < 0.03;
+
+      if (sameId || samePlace) {
+        deduped[deduped.length - 1] = {
+          ...previous,
+          ...stop,
+          arrival: stop.arrival ?? previous.arrival,
+          departure: stop.departure ?? previous.departure
+        };
+      } else {
+        deduped.push({ ...stop });
+      }
+    }
+
+    if (deduped.length < 2) {
+      return [
+        { ...leg.fromPlace, name: leg.from, arrival: leg.start, departure: leg.start },
+        { ...leg.toPlace, name: leg.to, arrival: leg.end, departure: leg.end }
+      ].filter(s => Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lon)));
+    }
+
+    return deduped;
+  }
+
+  function distanceMeters(lat1, lon1, lat2, lon2) {
+    return haversine(Number(lon1), Number(lat1), Number(lon2), Number(lat2)) * 1000;
+  }
+
+  function routeGeometryMetrics(coords) {
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    let total = 0;
+    const cumulative = [0];
+
+    for (let i = 1; i < coords.length; i++) {
+      const a = coords[i - 1];
+      const b = coords[i];
+      total += distanceMeters(a[1], a[0], b[1], b[0]);
+      cumulative.push(total);
+    }
+
+    return { total, cumulative };
+  }
+
+  function projectToRoute(lat, lon, coords, metrics) {
+    if (!metrics || !Array.isArray(coords) || coords.length < 2) return null;
+
+    const refLat = Number(lat) * Math.PI / 180;
+    const mx = 111320 * Math.cos(refLat);
+    const my = 110540;
+    let bestDistance = Infinity;
+    let bestProgress = 0;
+
+    for (let i = 1; i < coords.length; i++) {
+      const a = coords[i - 1];
+      const b = coords[i];
+
+      const ax = (a[0] - lon) * mx;
+      const ay = (a[1] - lat) * my;
+      const bx = (b[0] - lon) * mx;
+      const by = (b[1] - lat) * my;
+
+      const vx = bx - ax;
+      const vy = by - ay;
+      const length2 = vx * vx + vy * vy;
+      let t = length2 > 0 ? -(ax * vx + ay * vy) / length2 : 0;
+      t = Math.max(0, Math.min(1, t));
+
+      const px = ax + vx * t;
+      const py = ay + vy * t;
+      const d = Math.hypot(px, py);
+
+      if (d < bestDistance) {
+        bestDistance = d;
+        const segmentLength = metrics.cumulative[i] - metrics.cumulative[i - 1];
+        bestProgress = metrics.cumulative[i - 1] + segmentLength * t;
+      }
+    }
+
+    return {
+      distance: bestDistance,
+      progress: bestProgress,
+      ratio: metrics.total > 0 ? bestProgress / metrics.total : 0
+    };
+  }
+
+  function prepareLiveStopProgress(leg, stops) {
+    const metrics = routeGeometryMetrics(leg.coordinates);
+    if (!metrics) {
+      stops.forEach((stop, index) => {
+        stop.routeProgress = index;
+        stop.routeRatio = stops.length > 1 ? index / (stops.length - 1) : 0;
+      });
+      return { metrics: null };
+    }
+
+    let previous = 0;
+    stops.forEach((stop, index) => {
+      const projection = projectToRoute(Number(stop.lat), Number(stop.lon), leg.coordinates, metrics);
+      let progress = projection?.progress ?? previous;
+
+      // Keep stop order monotonic even for looping routes.
+      if (index > 0) progress = Math.max(progress, previous + 1);
+      progress = Math.min(progress, metrics.total);
+      previous = progress;
+
+      stop.routeProgress = progress;
+      stop.routeRatio = metrics.total > 0 ? progress / metrics.total : 0;
+    });
+
+    return { metrics };
+  }
+
+  function timeBasedNextIndex(stops, fallbackIndex = 1) {
+    const now = Date.now();
+    for (let i = Math.max(1, fallbackIndex); i < stops.length; i++) {
+      const d = asDate(liveStopTime(stops[i]));
+      if (d && d.getTime() >= now - 45000) return i;
+    }
+    return Math.min(stops.length - 1, Math.max(1, fallbackIndex));
+  }
+
+  function gpsBasedNextIndex(position, live) {
+    const leg = live.leg;
+    const stops = live.stops;
+    if (!position || !stops.length) return null;
+
+    const accuracy = Number(position.accuracy || 9999);
+    if (accuracy > 180) return null;
+
+    if (live.metrics && leg.coordinates?.length > 1) {
+      const projection = projectToRoute(position.lat, position.lon, leg.coordinates, live.metrics);
+
+      // If the phone is far away from the transit path, don't trust route progress.
+      if (!projection || projection.distance > 350) return null;
+
+      for (let i = Math.max(1, live.nextIndex - 1); i < stops.length; i++) {
+        // Keep a stop as "next" until we are around 25 m past it.
+        if (stops[i].routeProgress >= projection.progress - 25) return i;
+      }
+
+      return stops.length - 1;
+    }
+
+    // Fallback if the API did not return route geometry.
+    let closestIndex = 0;
+    let closestDistance = Infinity;
+    stops.forEach((stop, i) => {
+      const d = distanceMeters(position.lat, position.lon, stop.lat, stop.lon);
+      if (d < closestDistance) {
+        closestDistance = d;
+        closestIndex = i;
+      }
+    });
+
+    if (closestDistance < 120) return Math.min(stops.length - 1, closestIndex + 1);
+    return null;
+  }
+
+  function formatEta(stop) {
+    const d = asDate(liveStopTime(stop));
+    if (!d) return "—";
+    const delta = Math.round((d.getTime() - Date.now()) / 60000);
+    if (delta <= 0 && delta >= -1) return "nu";
+    if (delta > 0 && delta < 60) return `${delta} min`;
+    return timeText(d);
+  }
+
+  function liveArrivalLabel(stop) {
+    const d = asDate(liveStopTime(stop));
+    return d ? timeText(d) : "—";
+  }
+
+  function maybeVibrate(pattern) {
+    try {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    } catch {}
+  }
+
+  function updateLiveTripAlert(nextStop, nextIndex, distanceToNext) {
+    const live = planner.live;
+    const lastIndex = live.stops.length - 1;
+    const isDestinationNext = nextIndex === lastIndex;
+    const alert = $("#liveTripAlert");
+    const title = $("#liveTripAlertTitle");
+    const text = $("#liveTripAlertText");
+
+    alert.className = "live-trip-alert normal";
+
+    if (isDestinationNext) {
+      alert.classList.add("destination");
+
+      if (Number.isFinite(distanceToNext) && distanceToNext <= 90) {
+        alert.className = "live-trip-alert now";
+        title.textContent = "Nu uitstappen";
+        text.textContent = `${nextStop.name} is jouw uitstaphalte.`;
+        if (!live.warnedNow) {
+          live.warnedNow = true;
+          maybeVibrate([180, 90, 180, 90, 260]);
+        }
+      } else if (Number.isFinite(distanceToNext) && distanceToNext <= 400) {
+        alert.className = "live-trip-alert ready";
+        title.textContent = "Maak je klaar om uit te stappen";
+        text.textContent = `Je nadert ${nextStop.name}.`;
+        if (!live.warnedReady) {
+          live.warnedReady = true;
+          maybeVibrate([160, 100, 160]);
+        }
+      } else {
+        title.textContent = "Volgende halte: uitstappen";
+        text.textContent = `Stap uit bij ${nextStop.name}.`;
+      }
+    } else {
+      const remainingAfterNext = lastIndex - nextIndex;
+      title.textContent = "Rit actief";
+      text.textContent = remainingAfterNext > 0
+        ? `Na ${nextStop.name} volgen nog ${remainingAfterNext} halte${remainingAfterNext === 1 ? "" : "s"} tot je uitstaphalte.`
+        : `Volgende halte: ${nextStop.name}.`;
+    }
+  }
+
+  function renderLiveTrip() {
+    const live = planner.live;
+    if (!live.active || !live.leg || live.stops.length < 2) return;
+
+    const stops = live.stops;
+    const lastIndex = stops.length - 1;
+    const position = live.position;
+
+    let gpsIndex = gpsBasedNextIndex(position, live);
+    const timeIndex = timeBasedNextIndex(stops, live.nextIndex);
+
+    let candidate = gpsIndex ?? timeIndex;
+    candidate = Math.max(1, Math.min(lastIndex, candidate));
+
+    // Never move backwards during one active ride.
+    live.nextIndex = Math.max(live.nextIndex, candidate);
+    const nextIndex = Math.min(lastIndex, live.nextIndex);
+    const nextStop = stops[nextIndex];
+
+    let distanceToNext = NaN;
+    let routeRatio = nextIndex / lastIndex;
+
+    if (position) {
+      distanceToNext = distanceMeters(position.lat, position.lon, nextStop.lat, nextStop.lon);
+
+      if (live.metrics && live.leg.coordinates?.length > 1) {
+        const projection = projectToRoute(position.lat, position.lon, live.leg.coordinates, live.metrics);
+        if (projection && projection.distance < 500) routeRatio = projection.ratio;
+      }
+    }
+
+    routeRatio = Math.max(0, Math.min(1, routeRatio));
+    const progressPct = Math.round(routeRatio * 100);
+    const stopsLeft = Math.max(1, lastIndex - nextIndex + 1);
+
+    $("#liveTripNextStop").textContent = nextStop.name;
+    $("#liveTripEta").textContent = formatEta(nextStop);
+    $("#liveTripDistance").textContent = Number.isFinite(distanceToNext)
+      ? distanceToNext < 1000
+        ? `${Math.round(distanceToNext)} m`
+        : `${(distanceToNext / 1000).toFixed(1).replace(".", ",")} km`
+      : "op tijdschema";
+
+    $("#liveTripProgressPct").textContent = `${progressPct}%`;
+    $("#liveTripProgressBar").style.width = `${progressPct}%`;
+    $("#liveTripStopsLeft").textContent = String(stopsLeft);
+    $("#liveTripArrival").textContent = liveArrivalLabel(stops[lastIndex]);
+
+    if (position) {
+      const speedMs = Number(position.speed);
+      $("#liveTripSpeed").textContent = Number.isFinite(speedMs) && speedMs >= 0
+        ? `${Math.round(speedMs * 3.6)} km/u`
+        : "—";
+      $("#liveTripAccuracy").textContent = Number.isFinite(Number(position.accuracy))
+        ? `±${Math.round(position.accuracy)} m`
+        : "—";
+    } else {
+      $("#liveTripSpeed").textContent = "—";
+      $("#liveTripAccuracy").textContent = "tijdmodus";
+    }
+
+    const time = asDate(liveStopTime(nextStop));
+    const etaMeta = time ? `verwacht ${timeText(time)}` : "verwachte tijd niet beschikbaar";
+    $("#liveTripNextMeta").textContent =
+      nextIndex === lastIndex
+        ? `${etaMeta} · hier uitstappen`
+        : `${etaMeta} · ${stopsLeft} halte${stopsLeft === 1 ? "" : "s"} tot uitstappen`;
+
+    $("#liveTripRealtime").textContent = live.leg.realtime ? "LIVE" : "DIENSTREGELING";
+
+    const listStart = Math.max(0, nextIndex - 1);
+    const listEnd = Math.min(stops.length, nextIndex + 5);
+    $("#liveTripStopList").innerHTML = stops.slice(listStart, listEnd).map((stop, localIndex) => {
+      const i = listStart + localIndex;
+      const passed = i < nextIndex;
+      const current = i === nextIndex;
+      const destination = i === lastIndex;
+      const timeValue = liveArrivalLabel(stop);
+
+      return `
+        <div class="live-trip-stop-row ${passed ? "passed" : ""} ${current ? "current" : ""} ${destination ? "destination" : ""}">
+          <div class="live-trip-stop-dot"><i></i></div>
+          <div class="live-trip-stop-copy">
+            <strong>${esc(stop.name)}</strong>
+            <span>${destination ? "Uitstappen" : current ? "Volgende halte" : passed ? "Voorbij" : "Daarna"}</span>
+          </div>
+          <div class="live-trip-stop-time">${timeValue}</div>
+        </div>`;
+    }).join("");
+
+    updateLiveTripAlert(nextStop, nextIndex, distanceToNext);
+
+    bridge.updateLiveTripMap?.({
+      leg: live.leg,
+      position,
+      nextStop,
+      follow: live.followMap
+    });
+  }
+
+  async function refreshLiveTripData() {
+    const live = planner.live;
+    if (!live.active || !live.leg?.tripId) return;
+
+    try {
+      const url = new URL("https://api.transitous.org/api/v6/trip");
+      url.searchParams.set("tripId", live.leg.tripId);
+
+      const response = await fetch(url.toString(), {
+        headers: { "Accept": "application/json" },
+        cache: "no-store"
+      });
+
+      if (!response.ok) return;
+      const data = await response.json();
+      const itinerary = normalizeItinerary(data);
+      const transitLegs = itinerary.legs.filter(l => l.type === "transit");
+
+      let updated =
+        transitLegs.find(l => l.tripId && l.tripId === live.leg.tripId) ||
+        transitLegs.find(l => l.line === live.leg.line && l.headsign === live.leg.headsign) ||
+        transitLegs[0];
+
+      if (!updated) return;
+
+      const oldNextName = live.stops[live.nextIndex]?.name;
+      live.leg = updated;
+      live.stops = buildLiveStops(updated);
+      const prepared = prepareLiveStopProgress(updated, live.stops);
+      live.metrics = prepared.metrics;
+
+      if (oldNextName) {
+        const idx = live.stops.findIndex(s => s.name === oldNextName);
+        if (idx >= 1) live.nextIndex = idx;
+      }
+
+      renderLiveTrip();
+    } catch (error) {
+      // Live Trip keeps working with the last known timetable + GPS.
+      console.debug("OVFlow Live Trip refresh:", error);
+    }
+  }
+
+  async function requestWakeLock() {
+    const live = planner.live;
+    try {
+      if ("wakeLock" in navigator && document.visibilityState === "visible") {
+        live.wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch {}
+  }
+
+  function updateGpsStatus(text, stateClass = "") {
+    const el = $("#liveTripGps");
+    el.className = `live-trip-gps ${stateClass}`.trim();
+    el.querySelector("span").textContent = text;
+  }
+
+  function startLiveGps() {
+    const live = planner.live;
+
+    if (!navigator.geolocation) {
+      updateGpsStatus("Tijdmodus", "warning");
+      renderLiveTrip();
+      return;
+    }
+
+    updateGpsStatus("GPS zoeken…", "loading");
+
+    live.watchId = navigator.geolocation.watchPosition(position => {
+      live.position = {
+        lat: Number(position.coords.latitude),
+        lon: Number(position.coords.longitude),
+        accuracy: Number(position.coords.accuracy),
+        speed: position.coords.speed == null ? null : Number(position.coords.speed),
+        heading: position.coords.heading == null ? null : Number(position.coords.heading),
+        timestamp: position.timestamp
+      };
+
+      updateGpsStatus(
+        live.position.accuracy <= 80 ? "GPS actief" : "GPS minder nauwkeurig",
+        live.position.accuracy <= 80 ? "active" : "warning"
+      );
+      renderLiveTrip();
+    }, error => {
+      console.debug("Live Trip GPS:", error);
+      updateGpsStatus("Tijdmodus", "warning");
+      renderLiveTrip();
+    }, {
+      enableHighAccuracy: true,
+      maximumAge: 3000,
+      timeout: 15000
+    });
+  }
+
+  function startLiveTrip(itineraryIndex, legIndex) {
+    const itinerary = planner.itineraries[itineraryIndex];
+    const leg = itinerary?.legs?.[legIndex];
+
+    if (!leg || leg.type !== "transit") {
+      toast("Live Trip kan alleen voor een OV-rit gestart worden");
+      return;
+    }
+
+    stopLiveTrip(false);
+
+    const stops = buildLiveStops(leg);
+    if (stops.length < 2) {
+      toast("Voor deze rit zijn onvoldoende haltegegevens beschikbaar");
+      return;
+    }
+
+    const prepared = prepareLiveStopProgress(leg, stops);
+
+    planner.live = {
+      active: true,
+      itineraryIndex,
+      legIndex,
+      leg,
+      stops,
+      metrics: prepared.metrics,
+      nextIndex: Math.min(1, stops.length - 1),
+      position: null,
+      watchId: null,
+      tickTimer: null,
+      refreshTimer: null,
+      wakeLock: null,
+      followMap: false,
+      warnedReady: false,
+      warnedNow: false
+    };
+
+    $("#liveTripSession").classList.remove("hidden");
+    $("#liveTripTitle").textContent = `${modeLabel(leg.mode)} ${leg.line || ""}`.trim();
+    $("#liveTripLine").textContent = leg.line || modeLabel(leg.mode);
+    $("#liveTripDirection").textContent = leg.headsign ? `Richting ${leg.headsign}` : `${leg.from} → ${leg.to}`;
+    $("#liveTripFromLabel").textContent = leg.from;
+    $("#liveTripToLabel").textContent = leg.to;
+    $("#liveTripMapButton").classList.remove("active");
+
+    renderLiveTrip();
+    startLiveGps();
+    requestWakeLock();
+
+    planner.live.tickTimer = setInterval(renderLiveTrip, 10000);
+    planner.live.refreshTimer = setInterval(refreshLiveTripData, 60000);
+
+    $("#liveTripSession").scrollIntoView({ behavior: "smooth", block: "start" });
+    toast("Live Trip gestart");
+  }
+
+  async function stopLiveTrip(hide = true) {
+    const live = planner.live;
+
+    if (live?.watchId != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(live.watchId);
+    }
+    if (live?.tickTimer) clearInterval(live.tickTimer);
+    if (live?.refreshTimer) clearInterval(live.refreshTimer);
+
+    try {
+      if (live?.wakeLock) await live.wakeLock.release();
+    } catch {}
+
+    bridge.clearLiveTripMap?.();
+
+    if (hide) $("#liveTripSession")?.classList.add("hidden");
+
+    if (planner.live) {
+      planner.live.active = false;
+      planner.live.watchId = null;
+      planner.live.tickTimer = null;
+      planner.live.refreshTimer = null;
+      planner.live.wakeLock = null;
+      planner.live.followMap = false;
+    }
+  }
+
+  function toggleLiveMap() {
+    const live = planner.live;
+    if (!live.active) return;
+
+    live.followMap = !live.followMap;
+    $("#liveTripMapButton").classList.toggle("active", live.followMap);
+
+    const nextStop = live.stops[live.nextIndex];
+    if (live.followMap) {
+      bridge.focusLiveTripMap?.({
+        leg: live.leg,
+        position: live.position,
+        nextStop
+      });
+    } else {
+      toast("Kaart volgen uit");
+    }
   }
 
   function showError(message) {
@@ -742,6 +1343,16 @@
 
   $("#plannerGo").addEventListener("click", planRoute);
   $("#plannerRetry").addEventListener("click", planRoute);
+
+  $("#liveTripClose").addEventListener("click", () => stopLiveTrip(true));
+  $("#liveTripStopButton").addEventListener("click", () => stopLiveTrip(true));
+  $("#liveTripMapButton").addEventListener("click", toggleLiveMap);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && planner.live.active && !planner.live.wakeLock) {
+      requestWakeLock();
+    }
+  });
 
   $("#plannerMode").addEventListener("click", e => {
     const button = e.target.closest("button[data-mode]");

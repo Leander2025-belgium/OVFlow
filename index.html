@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#06121b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow v5 — Live routeplanner</title>
+  <title>OVFlow v6 — Live Trip</title>
   <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -192,6 +192,95 @@
             <a href="https://transitous.org/sources/" target="_blank" rel="noopener noreferrer">Databronnen</a>
           </div>
         </div>
+      </section>
+
+
+      <section class="panel live-trip-session hidden" id="liveTripSession">
+        <div class="live-trip-session-head">
+          <div>
+            <span class="section-kicker">Live Trip</span>
+            <h2 id="liveTripTitle">Je rit volgen</h2>
+          </div>
+          <div class="live-trip-head-actions">
+            <span class="live-trip-gps" id="liveTripGps"><i></i><span>GPS starten…</span></span>
+            <button type="button" class="live-trip-close" id="liveTripClose" aria-label="Stop Live Trip">×</button>
+          </div>
+        </div>
+
+        <div class="live-trip-hero">
+          <div class="live-trip-line-badge" id="liveTripLine">—</div>
+          <div class="live-trip-heading">
+            <span id="liveTripDirection">Richting —</span>
+            <strong id="liveTripNextStop">Volgende halte laden…</strong>
+            <small id="liveTripNextMeta">GPS en dienstregeling worden gecombineerd</small>
+          </div>
+          <div class="live-trip-countdown">
+            <strong id="liveTripEta">—</strong>
+            <span id="liveTripDistance">—</span>
+          </div>
+        </div>
+
+        <div class="live-trip-alert normal" id="liveTripAlert">
+          <span class="live-trip-alert-icon">●</span>
+          <div>
+            <strong id="liveTripAlertTitle">Rit actief</strong>
+            <small id="liveTripAlertText">OVFlow volgt je positie langs de route.</small>
+          </div>
+        </div>
+
+        <div class="live-trip-progress-wrap">
+          <div class="live-trip-progress-meta">
+            <span id="liveTripFromLabel">Vertrek</span>
+            <strong id="liveTripProgressPct">0%</strong>
+            <span id="liveTripToLabel">Bestemming</span>
+          </div>
+          <div class="live-trip-progress"><i id="liveTripProgressBar"></i></div>
+        </div>
+
+        <div class="live-trip-stats">
+          <div>
+            <span>Nog haltes</span>
+            <strong id="liveTripStopsLeft">—</strong>
+          </div>
+          <div>
+            <span>Aankomst</span>
+            <strong id="liveTripArrival">—</strong>
+          </div>
+          <div>
+            <span>Snelheid</span>
+            <strong id="liveTripSpeed">—</strong>
+          </div>
+          <div>
+            <span>GPS</span>
+            <strong id="liveTripAccuracy">—</strong>
+          </div>
+        </div>
+
+        <div class="live-trip-upcoming">
+          <div class="live-trip-upcoming-head">
+            <div>
+              <span class="section-kicker">Volgende haltes</span>
+              <h3>Onderweg</h3>
+            </div>
+            <span class="live-trip-realtime" id="liveTripRealtime">DIENSTREGELING</span>
+          </div>
+          <div class="live-trip-stop-list" id="liveTripStopList"></div>
+        </div>
+
+        <div class="live-trip-actions">
+          <button type="button" class="live-trip-map-button" id="liveTripMapButton">
+            <span>⌖</span>
+            <span><strong>Volg op kaart</strong><small>Toon jouw positie op de rit</small></span>
+          </button>
+          <button type="button" class="live-trip-stop-button" id="liveTripStopButton">
+            Stop Live Trip
+          </button>
+        </div>
+
+        <p class="live-trip-note">
+          Live Trip gebruikt je GPS voor je positie en de live dienstregeling voor de haltes. 
+          Op iPhone werkt volgen het betrouwbaarst terwijl OVFlow open blijft.
+        </p>
       </section>
 
       <section class="stats-grid">

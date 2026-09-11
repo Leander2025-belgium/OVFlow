@@ -813,6 +813,116 @@
     if (state.map.getSource("ovflow-planner-route")) state.map.removeSource("ovflow-planner-route");
   }
 
+
+  let liveTripUserMarker = null;
+  let liveTripNextMarker = null;
+
+  function ensureLiveTripRouteLayer(leg) {
+    if (!state.map || !leg || !Array.isArray(leg.coordinates) || leg.coordinates.length < 2) return;
+
+    const coords = leg.coordinates
+      .filter(p => Array.isArray(p) && p.length >= 2)
+      .map(p => [Number(p[0]), Number(p[1])])
+      .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+
+    if (coords.length < 2) return;
+
+    const data = {
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates: coords }
+    };
+
+    if (state.map.getSource("ovflow-live-trip-route")) {
+      state.map.getSource("ovflow-live-trip-route").setData(data);
+      return;
+    }
+
+    state.map.addSource("ovflow-live-trip-route", { type: "geojson", data });
+    state.map.addLayer({
+      id: "ovflow-live-trip-route-glow",
+      type: "line",
+      source: "ovflow-live-trip-route",
+      paint: {
+        "line-color": "#63efb1",
+        "line-width": 12,
+        "line-opacity": 0.14
+      }
+    });
+    state.map.addLayer({
+      id: "ovflow-live-trip-route-line",
+      type: "line",
+      source: "ovflow-live-trip-route",
+      paint: {
+        "line-color": "#63efb1",
+        "line-width": 5,
+        "line-opacity": 0.96
+      }
+    });
+  }
+
+  function updateLiveTripMap(payload = {}) {
+    if (!state.map) return;
+
+    const { leg, position, nextStop, follow = false } = payload;
+    ensureLiveTripRouteLayer(leg);
+
+    if (position && Number.isFinite(Number(position.lon)) && Number.isFinite(Number(position.lat))) {
+      if (!liveTripUserMarker) {
+        const el = document.createElement("div");
+        el.className = "live-map-user";
+        el.innerHTML = '<span></span>';
+        liveTripUserMarker = new maplibregl.Marker({ element: el, anchor: "center" })
+          .setLngLat([Number(position.lon), Number(position.lat)])
+          .addTo(state.map);
+      } else {
+        liveTripUserMarker.setLngLat([Number(position.lon), Number(position.lat)]);
+      }
+
+      if (follow) {
+        state.map.easeTo({
+          center: [Number(position.lon), Number(position.lat)],
+          zoom: Math.max(state.map.getZoom(), 15.2),
+          duration: 450
+        });
+      }
+    }
+
+    if (nextStop && Number.isFinite(Number(nextStop.lon)) && Number.isFinite(Number(nextStop.lat))) {
+      if (!liveTripNextMarker) {
+        const el = document.createElement("div");
+        el.className = "live-map-next-stop";
+        el.textContent = "↓";
+        liveTripNextMarker = new maplibregl.Marker({ element: el, anchor: "center" })
+          .setLngLat([Number(nextStop.lon), Number(nextStop.lat)])
+          .addTo(state.map);
+      } else {
+        liveTripNextMarker.setLngLat([Number(nextStop.lon), Number(nextStop.lat)]);
+      }
+    }
+  }
+
+  function focusLiveTripMap(payload = {}) {
+    updateLiveTripMap({ ...payload, follow: true });
+    document.querySelector(".real-map-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function clearLiveTripMap() {
+    if (liveTripUserMarker) {
+      liveTripUserMarker.remove();
+      liveTripUserMarker = null;
+    }
+    if (liveTripNextMarker) {
+      liveTripNextMarker.remove();
+      liveTripNextMarker = null;
+    }
+
+    if (!state.map) return;
+    if (state.map.getLayer("ovflow-live-trip-route-line")) state.map.removeLayer("ovflow-live-trip-route-line");
+    if (state.map.getLayer("ovflow-live-trip-route-glow")) state.map.removeLayer("ovflow-live-trip-route-glow");
+    if (state.map.getSource("ovflow-live-trip-route")) state.map.removeSource("ovflow-live-trip-route");
+  }
+
   window.OVFlowBridge = {
     ensureStopsLoaded,
     searchStops,
@@ -820,6 +930,9 @@
     getMap: () => state.map,
     showPlannerRouteOnMap,
     clearPlannerRouteOnMap,
+    updateLiveTripMap,
+    focusLiveTripMap,
+    clearLiveTripMap,
     toast,
     escapeHTML
   };
