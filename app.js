@@ -1,171 +1,252 @@
-const departures = [
-  { line: "58", type: "bus", destination: "Brugge Station", stop: "Adegem Dorp", time: "12:03", status: "3 min", delayed: false },
-  { line: "50", type: "bus", destination: "Eeklo Station", stop: "Adegem Dorp", time: "12:11", status: "+2 min", delayed: true },
-  { line: "IC", type: "train", destination: "Brugge", stop: "Eeklo", time: "12:24", status: "Op tijd", delayed: false },
-  { line: "58", type: "bus", destination: "Maldegem", stop: "Adegem Dorp", time: "12:31", status: "23 min", delayed: false }
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+const demoDepartures = [
+  {
+    line: "58",
+    type: "bus",
+    destination: "Brugge Station",
+    detail: "via Sijsele · halte Maldegem Markt",
+    time: "12:03",
+    status: "3 min",
+    delayed: false
+  },
+  {
+    line: "50",
+    type: "bus",
+    destination: "Eeklo Station",
+    detail: "via Adegem · halte Maldegem Markt",
+    time: "12:11",
+    status: "+2 min",
+    delayed: true
+  },
+  {
+    line: "IC",
+    type: "train",
+    destination: "Brugge",
+    detail: "vanaf Eeklo · spoor 1",
+    time: "12:24",
+    status: "Op tijd",
+    delayed: false
+  },
+  {
+    line: "58",
+    type: "bus",
+    destination: "Knokke Station",
+    detail: "via Brugge · halte Maldegem Markt",
+    time: "12:31",
+    status: "23 min",
+    delayed: false
+  }
 ];
 
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => [...document.querySelectorAll(sel)];
-
-const departuresEl = $("#departures");
-const toast = $("#toast");
+let departures = demoDepartures.map(item => ({ ...item }));
 
 function renderDepartures() {
-  departuresEl.innerHTML = departures.map(item => `
+  $("#departures").innerHTML = departures.map(item => `
     <article class="departure-card">
-      <span class="line-badge ${item.type}">${item.line}</span>
+      <div class="line-badge ${item.type}">${item.line}</div>
       <div class="departure-main">
         <strong>${item.destination}</strong>
-        <small>${item.stop}</small>
+        <span>${item.detail}</span>
       </div>
       <div class="departure-time">
         <strong>${item.time}</strong>
-        <small class="${item.delayed ? "delay" : ""}">${item.status}</small>
+        <span class="${item.delayed ? "delay" : ""}">${item.status}</span>
       </div>
     </article>
   `).join("");
 }
 
+let toastTimer;
 function showToast(message) {
+  const toast = $("#toast");
   toast.textContent = message;
   toast.classList.add("show");
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2200);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
-$("#swapBtn").addEventListener("click", () => {
+$("#swapButton").addEventListener("click", () => {
   const from = $("#fromInput");
   const to = $("#toInput");
   [from.value, to.value] = [to.value, from.value];
 });
 
-$$(".chip").forEach(chip => {
-  chip.addEventListener("click", () => {
-    $$(".chip").forEach(c => c.classList.remove("active"));
-    chip.classList.add("active");
+$("#clearDestination").addEventListener("click", () => {
+  $("#toInput").value = "";
+  $("#toInput").focus();
+});
+
+$("#locationButton").addEventListener("click", () => {
+  $("#fromInput").value = "Huidige locatie";
+  showToast("Huidige locatie geselecteerd");
+});
+
+$$(".segment").forEach(button => {
+  button.addEventListener("click", () => {
+    $$(".segment").forEach(item => item.classList.remove("active"));
+    button.classList.add("active");
   });
 });
 
-$$(".quick-card").forEach(card => {
-  card.addEventListener("click", () => {
-    $("#toInput").value = card.dataset.fill;
+$$(".favorite-chip[data-destination]").forEach(button => {
+  button.addEventListener("click", () => {
+    $("#toInput").value = button.dataset.destination;
     $("#toInput").focus();
   });
 });
 
-$("#refreshBtn").addEventListener("click", () => {
-  departures.forEach((dep, i) => {
-    const minute = 2 + ((Date.now() / 1000 + i * 7) % 16 | 0);
-    if (!dep.delayed) dep.status = `${minute} min`;
+$("#addFavorite").addEventListener("click", () => {
+  showToast("Favorietenbeheer komt in een volgende versie");
+});
+
+$("#preferenceButton").addEventListener("click", () => {
+  showToast("Routevoorkeuren komen in een volgende versie");
+});
+
+$("#refreshButton").addEventListener("click", () => {
+  departures = departures.map((item, index) => {
+    if (item.delayed) return item;
+
+    const mins = 2 + ((Date.now() / 1000 + index * 13) % 19 | 0);
+    return {
+      ...item,
+      status: item.type === "train" && index === 2 ? "Op tijd" : `${mins} min`
+    };
   });
+
   renderDepartures();
   showToast("Vertrektijden vernieuwd");
 });
 
 $("#routeForm").addEventListener("submit", (event) => {
   event.preventDefault();
+
   const from = $("#fromInput").value.trim();
   const to = $("#toInput").value.trim();
 
   if (!from || !to) {
-    showToast("Vul vertrek en bestemming in");
+    showToast("Vul eerst vertrek en bestemming in");
     return;
   }
 
   $("#resultTitle").textContent = `${from} → ${to}`;
   $("#routeResults").innerHTML = `
-    <article class="route-result">
+    <article class="route-result-card">
       <div class="route-result-head">
-        <div>
-          <strong>12:02 → 12:49</strong>
-          <div class="route-duration">47 min · 1 overstap</div>
-        </div>
-        <span class="on-time">Beste keuze</span>
+        <strong>12:02 → 12:49</strong>
+        <span>BESTE KEUZE</span>
       </div>
 
-      <div class="leg">
+      <div class="route-leg">
         <div class="leg-icon">🚶</div>
         <div>
-          <strong>6 min lopen</strong>
-          <small>Naar Adegem Dorp</small>
+          <strong>Loop naar Maldegem Markt</strong>
+          <span>6 minuten · 420 m</span>
         </div>
-        <strong>12:02</strong>
+        <time>12:02</time>
       </div>
 
-      <div class="leg">
+      <div class="route-leg">
         <div class="leg-icon">🚌</div>
         <div>
           <strong>Bus 58 richting Brugge</strong>
-          <small>Adegem Dorp → Maldegem</small>
+          <span>Maldegem Markt → Brugge Station</span>
         </div>
-        <strong>12:08</strong>
+        <time>12:08</time>
       </div>
 
-      <div class="leg">
+      <div class="route-leg">
         <div class="leg-icon">🚆</div>
         <div>
           <strong>IC richting ${to}</strong>
-          <small>1 overstap · spoor 2</small>
+          <span>1 overstap · spoor 2</span>
         </div>
-        <strong>12:31</strong>
+        <time>12:31</time>
       </div>
     </article>
 
-    <article class="route-result">
+    <article class="route-result-card">
       <div class="route-result-head">
-        <div>
-          <strong>12:12 → 13:04</strong>
-          <div class="route-duration">52 min · minder wandelen</div>
-        </div>
-        <span class="route-duration">Alternatief</span>
+        <strong>12:12 → 13:04</strong>
+        <span style="color:#8fa3b4">ALTERNATIEF</span>
       </div>
 
-      <div class="leg">
+      <div class="route-leg">
         <div class="leg-icon">🚌</div>
         <div>
-          <strong>Bus 50</strong>
-          <small>Via Eeklo Station</small>
+          <strong>Bus 50 richting Eeklo</strong>
+          <span>Minder wandelen · iets langere reistijd</span>
         </div>
-        <strong>12:12</strong>
+        <time>12:12</time>
       </div>
 
-      <div class="leg">
+      <div class="route-leg">
         <div class="leg-icon">🚆</div>
         <div>
           <strong>Trein naar ${to}</strong>
-          <small>Realtime beschikbaar in latere versie</small>
+          <span>Realtime koppeling volgt in volgende versie</span>
         </div>
-        <strong>12:36</strong>
+        <time>12:36</time>
       </div>
     </article>
   `;
 
-  const section = $("#resultSection");
-  section.classList.remove("hidden");
-  section.scrollIntoView({ behavior: "smooth", block: "start" });
+  $("#resultPanel").classList.remove("hidden");
+  $("#resultPanel").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
-$$(".nav-item").forEach(item => {
-  item.addEventListener("click", () => {
-    $$(".nav-item").forEach(n => n.classList.remove("active"));
-    item.classList.add("active");
+$("#closeResults").addEventListener("click", () => {
+  $("#resultPanel").classList.add("hidden");
+});
 
-    const tab = item.dataset.tab;
-    if (tab === "home") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } else if (tab === "map") {
-      document.querySelector(".map-card").scrollIntoView({ behavior: "smooth", block: "center" });
-    } else if (tab === "trips") {
-      document.querySelector(".trip-card").scrollIntoView({ behavior: "smooth", block: "center" });
-    } else {
-      showToast(`${item.querySelector("small").textContent} komt in versie 2`);
-    }
+$$(".map-filter-button").forEach(button => {
+  button.addEventListener("click", () => {
+    $$(".map-filter-button").forEach(item => item.classList.remove("active"));
+    button.classList.add("active");
+    showToast(`${button.textContent} op kaart`);
   });
 });
 
-$("#profileBtn").addEventListener("click", () => {
-  showToast("Profiel komt in versie 2");
+$("#alertsButton").addEventListener("click", () => {
+  document.querySelector(".disruptions-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+});
+
+$("#profileButton").addEventListener("click", () => {
+  showToast("Profiel komt in versie 3");
+});
+
+$("#stopButton").addEventListener("click", () => {
+  showToast("Haltepaneel komt in versie 3");
+});
+
+$("#allAlertsButton").addEventListener("click", () => {
+  showToast("Uitgebreide storingen komen in versie 3");
+});
+
+$$(".nav-item, .nav-main").forEach(button => {
+  button.addEventListener("click", () => {
+    const tab = button.dataset.tab;
+
+    if (button.classList.contains("nav-item")) {
+      $$(".nav-item").forEach(item => item.classList.remove("active"));
+      button.classList.add("active");
+    }
+
+    if (tab === "home") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (tab === "trips") {
+      $(".live-trip-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (tab === "map") {
+      $(".map-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (tab === "plan") {
+      $(".planner-shell").scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => $("#toInput").focus(), 350);
+    } else if (tab === "profile") {
+      showToast("Profiel komt in versie 3");
+    }
+  });
 });
 
 renderDepartures();
