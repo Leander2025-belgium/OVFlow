@@ -3,385 +3,305 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#07121d" />
+  <meta name="theme-color" content="#06121b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow — Slim onderweg</title>
+  <title>OVFlow v3 — Live De Lijn</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="ambient ambient-a"></div>
-  <div class="ambient ambient-b"></div>
-  <div class="ambient ambient-c"></div>
+  <div class="ambient a"></div>
+  <div class="ambient b"></div>
 
   <div class="app">
     <header class="topbar">
       <a class="brand" href="#" aria-label="OVFlow home">
-        <span class="brand-mark" aria-hidden="true">
-          <span class="brand-rail"></span>
-          <span class="brand-dot dot-a"></span>
-          <span class="brand-dot dot-b"></span>
+        <span class="brand-mark">
+          <span class="brand-line"></span>
+          <i class="brand-dot one"></i>
+          <i class="brand-dot two"></i>
         </span>
         <span class="brand-copy">
           <strong>OVFlow</strong>
-          <small>België onderweg</small>
+          <small>Live openbaar vervoer</small>
         </span>
       </a>
 
       <div class="top-actions">
-        <button class="circle-button" id="alertsButton" aria-label="Meldingen">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8Z"></path>
-            <path d="M10 20h4"></path>
-          </svg>
-          <span class="notification-dot"></span>
+        <button class="live-status loading" id="apiStatusButton" type="button">
+          <i></i>
+          <span id="apiStatusText">Verbinden…</span>
         </button>
-        <button class="avatar-button" id="profileButton" aria-label="Profiel">L</button>
+        <button class="icon-button" id="settingsButton" aria-label="Instellingen">
+          <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"></path></svg>
+        </button>
       </div>
     </header>
 
     <main>
-      <section class="planner-shell">
-        <div class="planner-glow"></div>
+      <section class="hero">
+        <div class="hero-grid"></div>
+        <div class="hero-glow"></div>
 
-        <div class="planner-heading">
-          <div>
-            <span class="live-network">
-              <i></i>
-              Netwerk actief
-            </span>
-            <h1>Waar wil je heen?</h1>
-            <p>Plan trein, bus, tram en metro in één reis.</p>
-          </div>
-
-          <div class="network-pill">
-            <span>NMBS</span>
-            <span>De Lijn</span>
-            <span>MIVB</span>
-            <span>TEC</span>
-          </div>
+        <div class="hero-copy">
+          <span class="kicker"><i></i> LIVE DE LIJN</span>
+          <h1>Vertrek slimmer.<br><span>Reis live.</span></h1>
+          <p>Realtime vertrektijden rechtstreeks uit de open data van De Lijn.</p>
         </div>
 
-        <form id="routeForm" class="route-card">
-          <div class="route-points">
-            <div class="route-connector">
-              <span class="route-point from-point"></span>
-              <span class="route-line"></span>
-              <span class="route-point to-point"></span>
+        <div class="search-card">
+          <div class="search-row">
+            <div class="search-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
             </div>
-
-            <div class="route-fields">
-              <label class="route-field">
-                <span class="field-label">Vertrekpunt</span>
-                <input id="fromInput" value="Maldegem" autocomplete="off" />
-                <button type="button" class="field-action" id="locationButton" aria-label="Gebruik huidige locatie">
-                  <svg viewBox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
-                </button>
-              </label>
-
-              <div class="route-divider"></div>
-
-              <label class="route-field">
-                <span class="field-label">Bestemming</span>
-                <input id="toInput" placeholder="Station, halte of adres" autocomplete="off" />
-                <button type="button" class="field-action clear-field" id="clearDestination" aria-label="Wis bestemming">
-                  <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"></path></svg>
-                </button>
-              </label>
+            <div class="search-copy">
+              <span>Actieve halte</span>
+              <strong id="activeStopName">De Lijn-halte laden…</strong>
+              <small id="activeStopCode">Realtime data wordt opgehaald</small>
             </div>
-
-            <button type="button" class="swap-button" id="swapButton" aria-label="Wissel vertrek en bestemming">
-              <svg viewBox="0 0 24 24">
-                <path d="M7 4v14"></path>
-                <path d="m3 14 4 4 4-4"></path>
-                <path d="M17 20V6"></path>
-                <path d="m13 10 4-4 4 4"></path>
-              </svg>
-            </button>
+            <button class="small-button" id="changeStopButton">Wijzig</button>
           </div>
 
-          <div class="planner-options">
-            <div class="segmented" id="timeMode">
-              <button type="button" class="segment active" data-mode="now">Nu</button>
-              <button type="button" class="segment" data-mode="depart">Vertrek</button>
-              <button type="button" class="segment" data-mode="arrive">Aankomst</button>
-            </div>
+          <div class="hero-actions">
+            <button class="primary-action" id="refreshNowButton">
+              <span>
+                <small>Laatste update</small>
+                <strong id="lastUpdated">Nog niet bijgewerkt</strong>
+              </span>
+              <span class="refresh-symbol">
+                <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
+              </span>
+            </button>
 
-            <button type="button" class="option-button" id="preferenceButton">
-              <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"></path></svg>
-              Voorkeuren
+            <button class="secondary-action" id="autoRefreshButton">
+              <i class="toggle-dot"></i>
+              <span>
+                <small>Automatisch</small>
+                <strong id="autoRefreshLabel">Elke 30 sec</strong>
+              </span>
             </button>
           </div>
-
-          <button class="plan-button" type="submit">
-            <span>
-              <small>Zoek beste route</small>
-              <strong>Plan mijn reis</strong>
-            </span>
-            <span class="plan-arrow">→</span>
-          </button>
-        </form>
-
-        <div class="favorite-strip">
-          <button class="favorite-chip" data-destination="Brugge Station">
-            <span class="favorite-icon">B</span>
-            <span><strong>Brugge</strong><small>Station</small></span>
-          </button>
-          <button class="favorite-chip" data-destination="Gent-Sint-Pieters">
-            <span class="favorite-icon train-icon">G</span>
-            <span><strong>Gent</strong><small>Sint-Pieters</small></span>
-          </button>
-          <button class="favorite-chip" data-destination="Eeklo Station">
-            <span class="favorite-icon bus-icon">E</span>
-            <span><strong>Eeklo</strong><small>Station</small></span>
-          </button>
-          <button class="favorite-chip add-favorite" id="addFavorite">
-            <span class="favorite-icon">+</span>
-            <span><strong>Toevoegen</strong><small>Favoriet</small></span>
-          </button>
         </div>
       </section>
 
-      <div class="dashboard-grid">
-        <section class="panel departures-panel">
+      <section class="stats-grid">
+        <article class="stat-card">
+          <span class="stat-icon green">
+            <svg viewBox="0 0 24 24"><path d="M5 17h14M7 17V7c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 8h6"></path></svg>
+          </span>
+          <div>
+            <span>Vertrekken</span>
+            <strong id="departureCount">—</strong>
+          </div>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-icon blue">
+            <svg viewBox="0 0 24 24"><path d="M12 3v18M5 8l7-5 7 5"></path></svg>
+          </span>
+          <div>
+            <span>Eerstvolgende</span>
+            <strong id="nextDeparture">—</strong>
+          </div>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-icon amber">
+            <svg viewBox="0 0 24 24"><path d="M12 4v9"></path><circle cx="12" cy="17" r="1"></circle><path d="M10 2h4l8 18H2Z"></path></svg>
+          </span>
+          <div>
+            <span>Vertragingen</span>
+            <strong id="delayCount">—</strong>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel departures-panel">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Realtime</span>
+            <h2>Volgende vertrekken</h2>
+          </div>
+
+          <button class="refresh-button" id="refreshButton">
+            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
+            Vernieuw
+          </button>
+        </div>
+
+        <div class="loading-card" id="loadingCard">
+          <div class="spinner"></div>
+          <div>
+            <strong>De Lijn-data ophalen</strong>
+            <span>Even verbinden met de Open Data API…</span>
+          </div>
+        </div>
+
+        <div class="error-card hidden" id="errorCard">
+          <span class="error-icon">!</span>
+          <div>
+            <strong id="errorTitle">Data kon niet worden geladen</strong>
+            <span id="errorMessage">Controleer de API-instellingen.</span>
+          </div>
+          <button id="retryButton">Opnieuw</button>
+        </div>
+
+        <div class="departures" id="departures"></div>
+
+        <div class="empty-card hidden" id="emptyCard">
+          <strong>Geen vertrekkende ritten gevonden</strong>
+          <span>Voor deze halte zijn momenteel geen doorkomsten teruggegeven.</span>
+        </div>
+      </section>
+
+      <section class="two-column">
+        <section class="panel data-panel">
           <div class="section-head">
             <div>
-              <span class="section-kicker">In de buurt</span>
-              <h2>Volgende vertrekken</h2>
+              <span class="section-kicker">Databron</span>
+              <h2>Live verbinding</h2>
             </div>
-            <button class="ghost-button" id="refreshButton">
-              <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
-              Vernieuw
-            </button>
+            <span class="source-badge">bron: De Lijn</span>
           </div>
 
-          <div class="nearby-stop">
-            <div class="stop-icon">
-              <svg viewBox="0 0 24 24"><path d="M5 16V6c0-2 1.5-3 7-3s7 1 7 3v10"></path><path d="M4 16h16"></path><path d="M7 20h1M16 20h1"></path><path d="M8 8h8"></path></svg>
+          <div class="connection-list">
+            <div class="connection-row">
+              <span>Core API</span>
+              <strong id="coreApiState">Controleren…</strong>
             </div>
-            <div>
-              <strong>Maldegem Markt</strong>
-              <span>230 m · ongeveer 3 min wandelen</span>
+            <div class="connection-row">
+              <span>Realtime halte</span>
+              <strong id="stopApiState">Controleren…</strong>
             </div>
-            <button class="mini-action" id="stopButton">Bekijk halte</button>
+            <div class="connection-row">
+              <span>Auto refresh</span>
+              <strong id="refreshState">Actief</strong>
+            </div>
+            <div class="connection-row">
+              <span>Datamodus</span>
+              <strong>Echte data</strong>
+            </div>
           </div>
 
-          <div id="departures" class="departures"></div>
+          <div class="api-note">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></svg>
+            <p>OVFlow v3 toont geen demovertrekken wanneer de API mislukt. Je ziet dan bewust een foutmelding zodat nepdata nooit als live-data wordt voorgesteld.</p>
+          </div>
         </section>
 
-        <section class="panel live-trip-panel">
-          <div class="section-head compact-head">
+        <section class="panel insight-panel">
+          <div class="section-head">
             <div>
-              <span class="section-kicker">Onderweg</span>
-              <h2>Live Trip</h2>
+              <span class="section-kicker">OVFlow</span>
+              <h2>Live inzicht</h2>
             </div>
-            <span class="live-badge"><i></i> LIVE</span>
           </div>
 
-          <div class="live-trip-card">
-            <div class="live-trip-top">
-              <div class="mode-badge train-badge">IC</div>
-              <div class="trip-title">
-                <strong>Gent → Brugge</strong>
-                <span>IC 1832 · spoor 2</span>
-              </div>
-              <span class="status-good">Op tijd</span>
-            </div>
+          <div class="big-time">
+            <span id="clockTime">--:--</span>
+            <small id="clockDate">Vandaag</small>
+          </div>
 
-            <div class="trip-metrics">
-              <div>
-                <span class="metric-value">64%</span>
-                <span class="metric-label">van de rit</span>
-              </div>
-              <div>
-                <span class="metric-value">08 min</span>
-                <span class="metric-label">tot volgende halte</span>
-              </div>
-            </div>
+          <div class="insight-card">
+            <span>Volgende rit</span>
+            <strong id="insightNextLine">Wachten op live data</strong>
+            <small id="insightNextMeta">De API wordt geladen.</small>
+          </div>
 
-            <div class="journey-progress">
-              <div class="progress-line">
-                <span class="progress-fill"></span>
-              </div>
-              <div class="journey-stops">
-                <span class="journey-stop passed">
-                  <i></i>
-                  <small>Gent</small>
-                </span>
-                <span class="journey-stop passed">
-                  <i></i>
-                  <small>Aalter</small>
-                </span>
-                <span class="journey-stop current">
-                  <i></i>
-                  <small>Beernem</small>
-                </span>
-                <span class="journey-stop">
-                  <i></i>
-                  <small>Brugge</small>
-                </span>
-              </div>
-            </div>
-
-            <div class="next-stop-card">
-              <div class="next-stop-symbol">
-                <svg viewBox="0 0 24 24"><path d="M5 17h14M7 17V7c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 8h6"></path></svg>
-              </div>
-              <div class="next-stop-copy">
-                <span>Volgende halte</span>
-                <strong>Beernem</strong>
-                <small>Aankomst om 12:41</small>
-              </div>
-              <div class="next-stop-eta">8 min</div>
-            </div>
+          <div class="insight-card">
+            <span>API-status</span>
+            <strong id="insightApi">Verbinden…</strong>
+            <small>Rechtstreekse browserverbinding zonder eigen server.</small>
           </div>
         </section>
-      </div>
-
-      <section class="panel map-panel">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">Live kaart</span>
-            <h2>OV in je buurt</h2>
-          </div>
-
-          <div class="map-filter">
-            <button class="map-filter-button active">Alles</button>
-            <button class="map-filter-button">Bus</button>
-            <button class="map-filter-button">Trein</button>
-          </div>
-        </div>
-
-        <div class="map-visual">
-          <div class="map-road road-a"></div>
-          <div class="map-road road-b"></div>
-          <div class="map-road road-c"></div>
-          <div class="map-water"></div>
-
-          <div class="map-stop map-stop-a">
-            <span class="map-pin-icon">58</span>
-            <small>Maldegem</small>
-          </div>
-          <div class="map-stop map-stop-b">
-            <span class="map-pin-icon train">IC</span>
-            <small>Eeklo</small>
-          </div>
-          <div class="map-stop map-stop-c">
-            <span class="map-pin-icon">50</span>
-            <small>Adegem</small>
-          </div>
-
-          <div class="user-location">
-            <span></span>
-          </div>
-
-          <div class="map-overlay-card">
-            <span class="overlay-label">Dichtstbijzijnde halte</span>
-            <strong>Maldegem Markt</strong>
-            <span>Bus 50 · 58 · 87</span>
-          </div>
-
-          <button class="map-location-button" aria-label="Centreer kaart">
-            <svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"></path><circle cx="12" cy="12" r="5"></circle></svg>
-          </button>
-        </div>
       </section>
 
-      <section class="panel disruptions-panel">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">Netwerk</span>
-            <h2>Meldingen & storingen</h2>
-          </div>
-          <button class="ghost-button" id="allAlertsButton">Alles bekijken</button>
-        </div>
-
-        <div class="alerts-list">
-          <article class="alert-card warning-alert">
-            <div class="alert-icon">!</div>
-            <div>
-              <strong>Werken tussen Gent en Brugge</strong>
-              <span>Reken op een aangepaste dienstregeling dit weekend.</span>
-            </div>
-            <span class="alert-tag">NMBS</span>
-          </article>
-
-          <article class="alert-card info-alert">
-            <div class="alert-icon">i</div>
-            <div>
-              <strong>Halte tijdelijk verplaatst</strong>
-              <span>Maldegem Markt ligt tijdelijk 120 m verderop.</span>
-            </div>
-            <span class="alert-tag">De Lijn</span>
-          </article>
-        </div>
-      </section>
-
-      <section class="panel result-panel hidden" id="resultPanel">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">Reisadvies</span>
-            <h2 id="resultTitle">Jouw route</h2>
-          </div>
-          <button class="ghost-button" id="closeResults">Sluiten</button>
-        </div>
-
-        <div class="route-summary">
-          <div>
-            <span>Snelste route</span>
-            <strong>47 min</strong>
-          </div>
-          <div>
-            <span>Overstappen</span>
-            <strong>1×</strong>
-          </div>
-          <div>
-            <span>Wandelen</span>
-            <strong>8 min</strong>
-          </div>
-        </div>
-
-        <div id="routeResults" class="route-results"></div>
-      </section>
+      <footer class="footer">
+        <span>OVFlow v3</span>
+        <span>bron: De Lijn</span>
+        <span>Open Data</span>
+      </footer>
     </main>
 
-    <nav class="bottom-nav" aria-label="Hoofdnavigatie">
-      <button class="nav-item active" data-tab="home">
-        <span class="nav-icon">
-          <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"></path><path d="M5 10v10h14V10"></path></svg>
-        </span>
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-target="home">
+        <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"></path><path d="M5 10v10h14V10"></path></svg>
         <small>Home</small>
       </button>
-
-      <button class="nav-item" data-tab="trips">
-        <span class="nav-icon">
-          <svg viewBox="0 0 24 24"><path d="M7 4v14"></path><path d="m3 14 4 4 4-4"></path><path d="M17 20V6"></path><path d="m13 10 4-4 4 4"></path></svg>
-        </span>
-        <small>Reizen</small>
+      <button class="nav-item" data-target="departures">
+        <svg viewBox="0 0 24 24"><path d="M5 17h14M7 17V7c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 8h6"></path></svg>
+        <small>Vertrekken</small>
       </button>
-
-      <button class="nav-main" data-tab="plan" aria-label="Nieuwe reis plannen">
-        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+      <button class="nav-main" id="navRefresh" aria-label="Vernieuw live data">
+        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
       </button>
-
-      <button class="nav-item" data-tab="map">
-        <span class="nav-icon">
-          <svg viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3Z"></path><path d="M9 3v15M15 6v15"></path></svg>
-        </span>
-        <small>Kaart</small>
+      <button class="nav-item" data-target="data">
+        <svg viewBox="0 0 24 24"><path d="M4 18V9M10 18V5M16 18v-7M22 18V3"></path></svg>
+        <small>Data</small>
       </button>
-
-      <button class="nav-item" data-tab="profile">
-        <span class="nav-icon">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c.8-4 3.5-6 8-6s7.2 2 8 6"></path></svg>
-        </span>
-        <small>Profiel</small>
+      <button class="nav-item" id="navSettings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5L9 6.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L5 11a7 7 0 0 0 0 2l-2.1 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.5 3.1h5l.5-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4L18.9 13a7 7 0 0 0 .1-1Z"></path></svg>
+        <small>Instellingen</small>
       </button>
     </nav>
-
-    <div class="toast" id="toast" role="status"></div>
   </div>
 
+  <div class="sheet-backdrop hidden" id="sheetBackdrop"></div>
+  <aside class="settings-sheet" id="settingsSheet" aria-hidden="true">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div>
+        <span class="section-kicker">OVFlow v3</span>
+        <h2>Live halte instellen</h2>
+      </div>
+      <button class="icon-button" id="closeSettings" aria-label="Sluiten">
+        <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"></path></svg>
+      </button>
+    </div>
+
+    <div class="sheet-info">
+      <strong>De Lijn-haltecode</strong>
+      <p>De Core API gebruikt een <b>entiteitnummer</b> en <b>haltenummer</b>. OVFlow bewaart deze alleen lokaal in je browser.</p>
+    </div>
+
+    <label class="form-field">
+      <span>Naam in OVFlow</span>
+      <input id="stopNameInput" placeholder="Bijv. Mijn halte" />
+    </label>
+
+    <div class="field-grid">
+      <label class="form-field">
+        <span>Entiteitnummer</span>
+        <input id="entityInput" inputmode="numeric" placeholder="2" />
+      </label>
+
+      <label class="form-field">
+        <span>Haltenummer</span>
+        <input id="stopNumberInput" inputmode="numeric" placeholder="202485" />
+      </label>
+    </div>
+
+    <label class="form-field">
+      <span>Aantal vertrekken</span>
+      <select id="maxDeparturesSelect">
+        <option value="4">4</option>
+        <option value="6" selected>6</option>
+        <option value="8">8</option>
+        <option value="10">10</option>
+      </select>
+    </label>
+
+    <button class="sheet-primary" id="saveSettings">Opslaan & live laden</button>
+
+    <div class="security-warning">
+      <span>!</span>
+      <p><strong>Testversie zonder server.</strong> De API-sleutel is daardoor zichtbaar in de browserbestanden. Upload deze versie niet publiek zonder de sleutel eerst te vervangen.</p>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
