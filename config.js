@@ -22,5 +22,11 @@ window.OVFLOW_CONFIG = {
   HALTES_BATCH_SIZE: 10000,
 
   // Officiële Belgische mobiliteitsfeed met de statische De Lijn-dienstregeling.
-  GTFS_STATIC_URL: "https://opendata-discovery-gtfs-static.api.production.belgianmobility.io/api/gtfs/feed/delijn/static"
+  GTFS_STATIC_URL: "https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip",
+
+  // Fallbacks als de primaire De Lijn-feed tijdelijk niet antwoordt.
+  GTFS_STATIC_FALLBACK_URLS: [
+    "https://api-management-opendata-production.azure-api.net/api/gtfs/feed/delijn/static",
+    "https://opendata-discovery-gtfs-static.api.production.belgianmobility.io/api/gtfs/feed/delijn/static"
+  ]
 };

@@ -143,7 +143,7 @@
     if (planner.worker) return;
     planner.worker = new Worker("route-worker.js");
     planner.worker.onmessage = onWorkerMessage;
-    planner.worker.onerror = e => showPlannerError(`Web Worker fout: ${e.message || "onbekend"}`);
+    planner.worker.onerror = e => showPlannerError(`Route-engine kon niet starten: ${e.message || "onbekende fout"}`);
   }
 
   function onWorkerMessage(event) {
@@ -191,6 +191,8 @@
     const payload={
       type:"plan", id,
       gtfsUrl:cfg.GTFS_STATIC_URL,
+      gtfsFallbackUrls:Array.isArray(cfg.GTFS_STATIC_FALLBACK_URLS) ? cfg.GTFS_STATIC_FALLBACK_URLS : [],
+      gtfsKey:cfg.DELIJN_GTFS_STATIC_KEY || "",
       from:planner.from, to:planner.to,
       date:localDate(dt), time:`${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}:00`,
       mode:planner.mode, preference:planner.pref, maxResults:5

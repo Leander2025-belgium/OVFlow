@@ -1,39 +1,25 @@
-OVFlow v4 — ROUTEPLANNER
+OVFlow v4.1 — ROUTEPLANNER FIX
 
-Nieuw:
-- echte routeplanner op basis van officiële De Lijn GTFS Static data
-- vertrek- en bestemmingshalte zoeken
-- huidige locatie als vertrekpunt (dichtstbijzijnde halte)
-- Nu / Vertrek / Aankomst
-- snelste route / minste overstappen
-- directe ritten + routes met 1 overstap
-- reisduur, overstappen, haltes en wachttijd
-- eerste vertrek wordt waar mogelijk gecontroleerd met De Lijn Core realtime API
-- route wordt op de bestaande echte OpenStreetMap-kaart getekend
-- zware GTFS-berekeningen draaien in route-worker.js zodat de UI responsief blijft
+Belangrijkste fix t.o.v. v4:
+- GTFS Static wordt nu opgehaald via de officiële De Lijn GTFS Static v3 URL.
+- De meegeleverde GTFS Static subscription key wordt als Ocp-Apim-Subscription-Key meegestuurd.
+- Er zijn twee fallback-URLs als de primaire bron tijdelijk niet antwoordt.
+- Geen externe fflate/unpkg-afhankelijkheid meer in de Web Worker.
+- ZIP-uitpakken gebeurt rechtstreeks in de browser met DecompressionStream.
+- Betere foutmeldingen voor 401, 403, 429, CORS/netwerk en ZIP-fouten.
+- Overstappen kunnen ook worden gevonden tussen gelijknamige/nabijgelegen perrons en haltes.
+- Kalendercontrole is strenger: er worden geen ritten van de verkeerde dag verzonnen.
 
-Start lokaal:
-  cd OVFlow-v4
+Starten:
   python -m http.server 8080
-Open:
+Open daarna:
   http://localhost:8080
 
-Belangrijk:
-De eerste routezoekopdracht moet de De Lijn GTFS-feed downloaden en indexeren. Dat is een grotere dataset en kan op een telefoon merkbaar duren. Binnen dezelfde sessie worden de geladen data hergebruikt.
-
-Bestanden:
-- index.html
-- style.css
-- app.js
-- planner.js
-- route-worker.js
-- config.js
-- README.txt
+LET OP:
+Deze versie werkt nog zonder eigen backend. Je API-sleutels staan daardoor in config.js en zijn zichtbaar voor iemand die de bestanden kan openen. Publiceer deze build dus niet publiek met je huidige sleutels.
 
 Databronnen:
-- De Lijn Core API: realtime doorkomsten
-- Belgian Mobility GTFS Static: dienstregeling / trips / stop_times
-- Digitaal Vlaanderen WFS: haltezoeker / haltecoördinaten
-- OpenStreetMap + MapLibre: kaart
-
-Deze versie werkt nog zonder eigen OVFlow-backend. Daardoor blijven API-sleutels in config.js zichtbaar. Voor een publieke release moeten die naar de server verhuizen.
+- De Lijn GTFS Static v3
+- De Lijn Open Data V1 Core API voor live vertrekcontrole
+- Digitaal Vlaanderen WFS voor haltezoeken
+- OpenStreetMap / MapLibre voor de kaart
