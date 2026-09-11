@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>OVFlow v3 — Live De Lijn</title>
+  <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -50,16 +51,26 @@
         </div>
 
         <div class="search-card">
-          <div class="search-row">
+          <div class="stop-search">
+            <div class="stop-search-box">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 4 4"></path></svg>
+              <input id="stopSearchInput" type="search" autocomplete="off" placeholder="Zoek halte, plaats of straat…" />
+              <button id="clearSearchButton" type="button" aria-label="Wis zoekopdracht">×</button>
+            </div>
+            <div class="stop-search-status" id="stopSearchStatus">Zoek in echte De Lijn-haltes</div>
+            <div class="stop-results hidden" id="stopResults"></div>
+          </div>
+
+          <div class="active-stop-card">
             <div class="search-icon">
               <svg viewBox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
             </div>
             <div class="search-copy">
-              <span>Actieve halte</span>
-              <strong id="activeStopName">De Lijn-halte laden…</strong>
-              <small id="activeStopCode">Realtime data wordt opgehaald</small>
+              <span>Geselecteerde halte</span>
+              <strong id="activeStopName">Kies een halte</strong>
+              <small id="activeStopCode">Zoek hierboven om live doorkomsten te zien</small>
             </div>
-            <button class="small-button" id="changeStopButton">Wijzig</button>
+            <button class="small-button" id="changeStopButton">Zoek</button>
           </div>
 
           <div class="hero-actions">
@@ -151,6 +162,39 @@
         <div class="empty-card hidden" id="emptyCard">
           <strong>Geen vertrekkende ritten gevonden</strong>
           <span>Voor deze halte zijn momenteel geen doorkomsten teruggegeven.</span>
+        </div>
+      </section>
+
+      <section class="panel real-map-panel" id="mapSection">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Echte kaart</span>
+            <h2>Haltes op de kaart</h2>
+          </div>
+          <div class="map-actions">
+            <button class="refresh-button" id="nearbyButton">
+              <svg viewBox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
+              Rond mij
+            </button>
+            <button class="refresh-button" id="fitStopsButton">Toon haltes</button>
+          </div>
+        </div>
+
+        <div class="map-shell">
+          <div id="ovMap" class="ov-map" aria-label="Interactieve kaart met De Lijn-haltes"></div>
+          <div class="map-loading" id="mapLoading">
+            <div class="spinner"></div>
+            <span>Kaart laden…</span>
+          </div>
+          <div class="map-legend">
+            <span><i class="legend-stop"></i> De Lijn-halte</span>
+            <span><i class="legend-selected"></i> geselecteerd</span>
+          </div>
+        </div>
+
+        <div class="map-caption">
+          <span>Kaart: OpenStreetMap</span>
+          <span>Haltes: Digitaal Vlaanderen / De Lijn</span>
         </div>
       </section>
 
@@ -301,6 +345,7 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
