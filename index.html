@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#06121b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow v3 — Live De Lijn</title>
+  <title>OVFlow v5 — Live routeplanner</title>
   <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -101,9 +101,9 @@
           <div>
             <span class="section-kicker">Routeplanner</span>
             <h2>Plan je reis</h2>
-            <p>De Lijn-dienstregeling, haltes en live vertrekcontrole in één overzicht.</p>
+            <p>Plan je volledige reis in OVFlow met live OV-routes, overstappen en wandeldelen.</p>
           </div>
-          <span class="planner-data-pill" id="plannerDataPill"><i></i><span>Dienstregeling nog niet geladen</span></span>
+          <span class="planner-data-pill ready" id="plannerDataPill"><i></i><span>Live route-engine</span></span>
         </div>
 
         <div class="journey-card">
@@ -151,34 +151,46 @@
 
           <button type="button" class="journey-plan-button" id="plannerGo">
             <span class="journey-plan-copy">
-              <small>De Lijn</small>
+              <small>OVFlow live route-engine</small>
               <strong>Zoek routes</strong>
             </span>
             <span class="journey-plan-arrow">→</span>
           </button>
         </div>
 
-        <div class="planner-progress hidden" id="plannerProgress">
-          <div class="planner-progress-top">
-            <span id="plannerProgressLabel">Dienstregeling voorbereiden…</span>
-            <strong id="plannerProgressPct">0%</strong>
+        <div class="planner-loading hidden" id="plannerLoading">
+          <div class="planner-loading-head">
+            <div class="planner-spinner"></div>
+            <div>
+              <strong>OVFlow berekent je reis</strong>
+              <small id="plannerLoadingText">Dienstregeling en live-data combineren…</small>
+            </div>
           </div>
-          <div class="planner-progress-track"><i id="plannerProgressBar"></i></div>
-          <small id="plannerProgressDetail">De eerste routezoekopdracht kan wat langer duren.</small>
+          <div class="planner-loading-bar"><i></i></div>
         </div>
 
         <div class="planner-error hidden" id="plannerError">
           <span>!</span>
-          <div><strong>Routeplanner kon niet starten</strong><small id="plannerErrorText"></small></div>
+          <div>
+            <strong>Geen route gevonden</strong>
+            <small id="plannerErrorText"></small>
+          </div>
           <button id="plannerRetry" type="button">Opnieuw</button>
         </div>
 
         <div class="planner-results hidden" id="plannerResults">
           <div class="planner-results-head">
-            <div><span class="section-kicker">Reisadvies</span><h3 id="plannerResultsTitle">Routes</h3></div>
-            <span id="plannerResultsMeta"></span>
+            <div>
+              <span class="section-kicker">OVFlow reisadvies</span>
+              <h3 id="plannerResultsTitle">Routes</h3>
+            </div>
+            <span class="planner-live-chip" id="plannerResultsMeta">LIVE</span>
           </div>
-          <div id="plannerResultCards" class="planner-result-cards"></div>
+          <div class="planner-result-cards" id="plannerResultCards"></div>
+          <div class="planner-source-note">
+            <span>Route-engine: Transitous / MOTIS</span>
+            <a href="https://transitous.org/sources/" target="_blank" rel="noopener noreferrer">Databronnen</a>
+          </div>
         </div>
       </section>
 

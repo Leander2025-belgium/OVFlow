@@ -1,25 +1,40 @@
-OVFlow v4.1 — ROUTEPLANNER FIX
+OVFlow v5 — INTERNE LIVE ROUTEPLANNER
 
-Belangrijkste fix t.o.v. v4:
-- GTFS Static wordt nu opgehaald via de officiële De Lijn GTFS Static v3 URL.
-- De meegeleverde GTFS Static subscription key wordt als Ocp-Apim-Subscription-Key meegestuurd.
-- Er zijn twee fallback-URLs als de primaire bron tijdelijk niet antwoordt.
-- Geen externe fflate/unpkg-afhankelijkheid meer in de Web Worker.
-- ZIP-uitpakken gebeurt rechtstreeks in de browser met DecompressionStream.
-- Betere foutmeldingen voor 401, 403, 429, CORS/netwerk en ZIP-fouten.
-- Overstappen kunnen ook worden gevonden tussen gelijknamige/nabijgelegen perrons en haltes.
-- Kalendercontrole is strenger: er worden geen ritten van de verkeerde dag verzonnen.
+Deze versie stuurt de gebruiker NIET meer door naar De Lijn, Google Maps of 9292.
 
-Starten:
+Werking:
+- Haltes zoeken gebeurt in OVFlow.
+- Je kiest vertrek + bestemming.
+- Je kiest Nu / Vertrek / Aankomst.
+- OVFlow vraagt één reisadvies op bij de open-source MOTIS-route-engine van Transitous.
+- De volledige resultaten worden binnen OVFlow weergegeven.
+- Wandelstukken, bus/tram/trein, overstappen, tijden en realtime-info worden getoond.
+- 'Toon op kaart' tekent de geometrie van het reisadvies op de bestaande OVFlow-kaart.
+- Er is geen grote GTFS-download op de iPhone nodig.
+
+Route API:
+https://api.transitous.org/api/v6/plan
+
+OVFlow gebruikt o.a.:
+- TRANSIT + WALK
+- realtimeMode=REALTIME
+- detailedLegs=true
+- routed transfers
+- max 4 overstappen bij 'Snelste'
+- max 2 overstappen bij 'Minst overstappen'
+
+Transitous:
+Dit is geschikt voor ontwikkeling/prototyping van een open-source, niet-commercieel project.
+Voor een publieke app met veel gebruikers moet je de Transitous usage policy naleven
+en vooraf contact opnemen over routingbelasting.
+
+Bronvermelding:
+- Transitous / MOTIS
+- De Lijn open data
+- OpenStreetMap
+
+Start lokaal:
   python -m http.server 8080
-Open daarna:
+
+Open:
   http://localhost:8080
-
-LET OP:
-Deze versie werkt nog zonder eigen backend. Je API-sleutels staan daardoor in config.js en zijn zichtbaar voor iemand die de bestanden kan openen. Publiceer deze build dus niet publiek met je huidige sleutels.
-
-Databronnen:
-- De Lijn GTFS Static v3
-- De Lijn Open Data V1 Core API voor live vertrekcontrole
-- Digitaal Vlaanderen WFS voor haltezoeken
-- OpenStreetMap / MapLibre voor de kaart
