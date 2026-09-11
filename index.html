@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>Greenline — Slim onderweg</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Vrijdag 11 september</p>
+        <h1>Goedemorgen 👋</h1>
+      </div>
+      <button class="icon-btn" id="profileBtn" aria-label="Profiel">LD</button>
+    </header>
+
+    <main>
+      <section class="hero-card glass">
+        <div class="hero-copy">
+          <span class="status-dot"></span>
+          <span>OV in België</span>
+        </div>
+        <h2>Waar wil je heen?</h2>
+
+        <form id="routeForm" class="route-form">
+          <label class="location-field">
+            <span class="field-icon">●</span>
+            <span>
+              <small>Vertrek</small>
+              <input id="fromInput" value="Adegem" autocomplete="off" />
+            </span>
+          </label>
+
+          <button type="button" class="swap-btn" id="swapBtn" aria-label="Wissel vertrek en bestemming">⇅</button>
+
+          <label class="location-field">
+            <span class="field-icon destination">◆</span>
+            <span>
+              <small>Bestemming</small>
+              <input id="toInput" placeholder="Waarheen?" autocomplete="off" />
+            </span>
+          </label>
+
+          <div class="route-options">
+            <button type="button" class="chip active">Nu</button>
+            <button type="button" class="chip">Vertrek</button>
+            <button type="button" class="chip">Aankomst</button>
+          </div>
+
+          <button class="primary-btn" type="submit">
+            <span>Plan mijn reis</span>
+            <span>→</span>
+          </button>
+        </form>
+      </section>
+
+      <section class="quick-actions">
+        <button class="quick-card glass" data-fill="Brugge">
+          <span class="quick-icon">🏰</span>
+          <span><strong>Brugge</strong><small>Favoriet</small></span>
+        </button>
+        <button class="quick-card glass" data-fill="Gent-Sint-Pieters">
+          <span class="quick-icon">🚆</span>
+          <span><strong>Gent</strong><small>Station</small></span>
+        </button>
+        <button class="quick-card glass" data-fill="Maldegem">
+          <span class="quick-icon">🚌</span>
+          <span><strong>Maldegem</strong><small>Centrum</small></span>
+        </button>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Dichtbij</p>
+            <h3>Volgende vertrekken</h3>
+          </div>
+          <button class="text-btn" id="refreshBtn">Vernieuw</button>
+        </div>
+
+        <div id="departures" class="departure-list"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Onderweg</p>
+            <h3>Live Trip</h3>
+          </div>
+          <span class="live-pill">LIVE</span>
+        </div>
+
+        <article class="trip-card glass">
+          <div class="trip-top">
+            <div>
+              <span class="line-badge train">IC</span>
+              <strong>Gent → Brugge</strong>
+            </div>
+            <span class="on-time">Op tijd</span>
+          </div>
+
+          <div class="progress-track">
+            <div class="progress-fill"></div>
+            <span class="progress-dot p1"></span>
+            <span class="progress-dot p2"></span>
+            <span class="progress-dot p3 active"></span>
+            <span class="progress-dot p4"></span>
+          </div>
+
+          <div class="trip-stops">
+            <span>Gent</span>
+            <span>Aalter</span>
+            <span>Beernem</span>
+            <span>Brugge</span>
+          </div>
+
+          <div class="next-stop">
+            <div>
+              <small>Volgende halte</small>
+              <strong>Beernem</strong>
+            </div>
+            <div class="eta">8 min</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Kaart</p>
+            <h3>In de buurt</h3>
+          </div>
+        </div>
+
+        <div class="map-card glass">
+          <div class="map-grid"></div>
+          <div class="map-pin bus-pin">🚌</div>
+          <div class="map-pin train-pin">🚆</div>
+          <div class="map-pin you-pin">●</div>
+          <div class="map-label">
+            <strong>Adegem</strong>
+            <span>3 haltes dichtbij</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section result-section hidden" id="resultSection">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Reisadvies</p>
+            <h3 id="resultTitle">Jouw route</h3>
+          </div>
+        </div>
+        <div id="routeResults"></div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav glass">
+      <button class="nav-item active" data-tab="home"><span>⌂</span><small>Home</small></button>
+      <button class="nav-item" data-tab="trips"><span>⇄</span><small>Reizen</small></button>
+      <button class="nav-item" data-tab="map"><span>⌖</span><small>Kaart</small></button>
+      <button class="nav-item" data-tab="alerts"><span>!</span><small>Meldingen</small></button>
+      <button class="nav-item" data-tab="profile"><span>◉</span><small>Profiel</small></button>
+    </nav>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
