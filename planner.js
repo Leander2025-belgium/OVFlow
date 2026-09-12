@@ -1698,6 +1698,37 @@
     }
   });
 
+
+  function startLiveTripFromExternalLeg(rawLeg) {
+    if (!rawLeg) throw new Error("Geen ritgegevens ontvangen");
+
+    const normalized = rawLeg.type ? rawLeg : normalizeLeg(rawLeg);
+    if (!normalized || normalized.type !== "transit") {
+      throw new Error("Geen geldige OV-rit gevonden");
+    }
+
+    const itinerary = {
+      duration: Number(normalized.duration || 0),
+      transfers: 0,
+      start: normalized.start,
+      end: normalized.end,
+      legs: [normalized],
+      walkDistance: 0,
+      realtime: Boolean(normalized.realtime),
+      raw: null
+    };
+
+    planner.itineraries.push(itinerary);
+    const routeIndex = planner.itineraries.length - 1;
+    startLiveTrip(routeIndex, 0);
+    return normalized;
+  }
+
+  window.OVFlowPlannerBridge = {
+    startLiveTripFromExternalLeg,
+    normalizeLeg
+  };
+
   createSearch("#plannerFrom", "#plannerFromResults", "from");
   createSearch("#plannerTo", "#plannerToResults", "to");
   setDefaultDateTime();
