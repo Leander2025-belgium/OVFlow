@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#06121b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow v8 — Live rit zonder server</title>
+  <title>OVFlow 2.0 — Stabiele Live Trip</title>
   <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -24,7 +24,7 @@
         </span>
         <span class="brand-copy">
           <strong>OVFlow</strong>
-          <small>Live openbaar vervoer</small>
+          <small>2.0</small>
         </span>
       </a>
 
@@ -255,7 +255,7 @@
       <section class="panel live-trip-session hidden" id="liveTripSession">
         <div class="live-trip-session-head">
           <div>
-            <span class="section-kicker">Live Trip</span>
+            <span class="section-kicker">OVFlow 2.0 · Live Trip</span>
             <h2 id="liveTripTitle">Je rit volgen</h2>
           </div>
           <div class="live-trip-head-actions">
@@ -288,7 +288,10 @@
         <div class="live-trip-progress-wrap">
           <div class="live-trip-progress-meta">
             <span id="liveTripFromLabel">Vertrek</span>
-            <strong id="liveTripProgressPct">0%</strong>
+            <span class="live-trip-progress-center">
+              <strong id="liveTripProgressPct">0%</strong>
+              <small id="liveTripProgressStep">halte 1 van 2</small>
+            </span>
             <span id="liveTripToLabel">Bestemming</span>
           </div>
           <div class="live-trip-progress"><i id="liveTripProgressBar"></i></div>

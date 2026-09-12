@@ -1,36 +1,48 @@
-OVFlow v8 — LIVE RIT ZONDER EIGEN SERVER
+OVFlow 2.0 — STABIELE LIVE TRIP
 
-Deze versie verwijdert de afhankelijkheid van een eigen OVFlow-server voor de snelle Live Rit-zoekfunctie.
+Deze versie focust op twee dingen:
+1. Mooier OVFlow 2.0 Live Trip design.
+2. Een stabiele voortgang die niet meer zomaar van 1% naar 26% springt.
 
-WERKING
-1. Typ een lijnnummer, bijvoorbeeld 50.
-2. Tik 'Zoek rond mij'.
-3. De browser vraagt GPS-toegang.
-4. OVFlow laadt de dichtstbijzijnde De Lijn-haltes rechtstreeks.
-5. OVFlow vraagt rechtstreeks realtime doorkomsten op via de De Lijn Core API.
-6. Alleen ritten van de gezochte lijn worden getoond.
-7. Kies de juiste richting/rit.
-8. OVFlow koppelt de rit aan Transitous/MOTIS om de volledige haltevolgorde te krijgen.
-9. Live Trip start met GPS, volgende halte, haltes te gaan en uitstapwaarschuwing.
+BELANGRIJKSTE FIX
+De oude Live Trip berekende het percentage met de projectie op de volledige routegeometrie.
+Bij lijnen met bochten, parallelle straten, lussen of een routegeometrie die al vóór jouw
+instaphalte begon, kon GPS op een verkeerd stuk van de lijn projecteren. Daardoor kon de
+voortgang bijvoorbeeld ineens van 1% naar 26% springen.
 
-GEEN EIGEN SERVER NODIG
-Je hoeft voorlopig geen Node.js/Express/laptopserver te draaien.
+OVFlow 2.0 gebruikt nu:
+- alleen de twee opeenvolgende haltes van het HUIDIGE segment;
+- GPS-projectie tussen die twee haltes;
+- haltevolgorde als harde begrenzing;
+- één halte per bevestigde overgang;
+- GPS-zone: eerst de halte naderen, daarna pas bij wegrijden markeren als voorbij;
+- conservatieve tijdfallback als GPS tijdelijk slecht is;
+- nooit achteruit springen door GPS-jitter;
+- vloeiende filtering van het percentage;
+- gladgestreken snelheid.
 
-Externe diensten die de browser rechtstreeks gebruikt:
-- De Lijn Core API: realtime doorkomsten
-- Digitaal Vlaanderen WFS: De Lijn-haltes
-- Transitous/MOTIS: rit/haltevolgorde en routing
-- iRail: NMBS-livegegevens bij treinritten
-- OpenStreetMap/MapLibre: kaart
+VOORBEELD
+Als je tussen halte 1 en 2 van 38 zit:
+- minimale voortgang: 0 / 37
+- maximale voortgang vóór halte 2: 1 / 37 ≈ 2,7%
 
-BELANGRIJK
-Omdat deze testversie browser-only is, staat de De Lijn API-sleutel nog in config.js.
-Dat is bruikbaar tijdens ontwikkeling, maar niet geschikt voor een publieke productieversie.
+OVFlow kan dus op dat moment onmogelijk ineens 26% tonen.
 
-Gebruik via HTTPS of localhost. Niet rechtstreeks via file:// als je browser CORS/geolocatie blokkeert.
+UI 2.0
+- modernere Live Trip-kaart
+- rustigere glaslagen
+- sterkere hiërarchie voor volgende halte
+- dikkere, vloeiendere voortgangsbalk
+- percentage + 'halte X van Y'
+- mooiere huidige-halte highlight
+- ruimere statistiektegels
+- OVFlow 2.0 branding
 
-Lokaal:
-  python -m http.server 8080
+Deze versie blijft BROWSER-ONLY:
+- geen eigen server nodig
+- De Lijn Core API rechtstreeks
+- Transitous/MOTIS
+- iRail voor NMBS
+- OpenStreetMap/MapLibre
 
-Daarna:
-  http://localhost:8080
+Open OVFlow via GitHub Pages/HTTPS of localhost.

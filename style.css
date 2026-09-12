@@ -1346,3 +1346,154 @@ button,input,select{font:inherit}button{color:inherit;-webkit-tap-highlight-colo
     width:100%
   }
 }
+
+
+/* OVFlow 2.0 — Live Trip refinement & stability */
+.live-trip-session{
+  border-radius:30px;
+  border-color:rgba(114,232,190,.16);
+  background:
+    radial-gradient(circle at 90% 0%,rgba(62,209,166,.12),transparent 34%),
+    radial-gradient(circle at 0% 100%,rgba(82,145,229,.08),transparent 30%),
+    linear-gradient(180deg,rgba(10,38,45,.95),rgba(5,24,34,.93));
+  box-shadow:
+    inset 0 1px rgba(255,255,255,.035),
+    0 22px 70px rgba(0,0,0,.20)
+}
+.live-trip-session-head{
+  margin-bottom:16px
+}
+.live-trip-session-head h2{
+  font-size:28px
+}
+.live-trip-hero{
+  min-height:126px;
+  border-radius:25px;
+  border-color:rgba(255,255,255,.085);
+  background:
+    linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.018));
+  box-shadow:inset 0 1px rgba(255,255,255,.025)
+}
+.live-trip-line-badge{
+  background:
+    linear-gradient(145deg,rgba(99,239,177,.18),rgba(89,157,236,.11));
+  border-color:rgba(99,239,177,.18)
+}
+.live-trip-heading strong{
+  font-size:24px
+}
+.live-trip-countdown strong{
+  font-size:27px
+}
+.live-trip-alert{
+  border-radius:20px;
+  background:rgba(255,255,255,.028)
+}
+.live-trip-progress-wrap{
+  margin-top:17px
+}
+.live-trip-progress-meta{
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  align-items:end
+}
+.live-trip-progress-center{
+  display:grid;
+  justify-items:center;
+  gap:2px
+}
+.live-trip-progress-center strong{
+  color:#c9d9e2;
+  font-size:12px!important;
+  font-weight:900
+}
+.live-trip-progress-center small{
+  color:#637d8c;
+  font-size:6.8px;
+  text-transform:uppercase;
+  letter-spacing:.055em;
+  font-weight:850;
+  white-space:nowrap
+}
+.live-trip-progress{
+  height:8px;
+  margin-top:9px;
+  background:rgba(255,255,255,.065);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.22)
+}
+.live-trip-progress i{
+  background:linear-gradient(90deg,#65eab0 0%,#74d8d7 50%,#77b7ff 100%);
+  box-shadow:0 0 16px rgba(99,239,177,.16);
+  transition:width .7s cubic-bezier(.2,.8,.2,1)
+}
+.live-trip-stats{
+  margin-top:13px;
+  gap:9px
+}
+.live-trip-stats>div{
+  min-height:78px;
+  border-radius:20px;
+  background:rgba(255,255,255,.026);
+  border-color:rgba(255,255,255,.065)
+}
+.live-trip-stats span{
+  font-size:8px
+}
+.live-trip-stats strong{
+  margin-top:7px;
+  font-size:17px
+}
+.live-trip-upcoming{
+  margin-top:18px
+}
+.live-trip-stop-list{
+  border-radius:22px;
+  background:rgba(255,255,255,.018)
+}
+.live-trip-stop-row{
+  min-height:66px;
+  padding:10px 15px
+}
+.live-trip-stop-row.current{
+  background:
+    linear-gradient(90deg,rgba(99,239,177,.075),rgba(99,239,177,.025));
+  box-shadow:inset 3px 0 rgba(99,239,177,.78)
+}
+.live-trip-stop-row.current .live-trip-stop-copy strong{
+  color:#f7fffb
+}
+.live-trip-stop-row.current .live-trip-stop-time{
+  color:#cff4df
+}
+.live-trip-stop-dot i{
+  transition:transform .25s ease,background .25s ease,box-shadow .25s ease
+}
+.live-trip-stop-row.current .live-trip-stop-dot i{
+  transform:scale(1.08);
+  box-shadow:
+    0 0 0 5px rgba(99,239,177,.075),
+    0 0 16px rgba(99,239,177,.45)
+}
+.live-trip-gps.active{
+  background:rgba(99,239,177,.075)
+}
+@media(max-width:620px){
+  .live-trip-session{
+    border-radius:26px
+  }
+  .live-trip-session-head h2{
+    font-size:25px
+  }
+  .live-trip-hero{
+    min-height:118px;
+    border-radius:22px
+  }
+  .live-trip-heading strong{
+    font-size:19px
+  }
+  .live-trip-countdown strong{
+    font-size:23px
+  }
+  .live-trip-stats>div{
+    min-height:72px
+  }
+}

@@ -1169,50 +1169,229 @@
   }
 
   function timeBasedNextIndex(stops, fallbackIndex = 1) {
-    const now = Date.now();
-    for (let i = Math.max(1, fallbackIndex); i < stops.length; i++) {
-      const d = asDate(liveStopTime(stops[i]));
-      if (d && d.getTime() >= now - 45000) return i;
-    }
-    return Math.min(stops.length - 1, Math.max(1, fallbackIndex));
+    // Only used as a conservative fallback when GPS is unavailable.
+    // It may advance at most ONE stop at a time, preventing timetable jumps.
+    const index = Math.max(1, Math.min(stops.length - 1, fallbackIndex));
+    const nextTime = asDate(liveStopTime(stops[index]));
+    if (!nextTime) return index;
+
+    const lateByMs = Date.now() - nextTime.getTime();
+    return lateByMs > 120000 && index < stops.length - 1 ? index + 1 : index;
   }
 
-  function gpsBasedNextIndex(position, live) {
-    const leg = live.leg;
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function segmentProjection(position, fromStop, toStop) {
+    if (!position || !fromStop || !toStop) return null;
+
+    const lat = Number(position.lat);
+    const lon = Number(position.lon);
+    const aLat = Number(fromStop.lat);
+    const aLon = Number(fromStop.lon);
+    const bLat = Number(toStop.lat);
+    const bLon = Number(toStop.lon);
+
+    if (![lat, lon, aLat, aLon, bLat, bLon].every(Number.isFinite)) return null;
+
+    // Local metre projection. We ONLY project on the current stop-to-stop segment,
+    // never on the whole line. That prevents loops/parallel streets from jumping progress.
+    const refLat = lat * Math.PI / 180;
+    const mx = 111320 * Math.cos(refLat);
+    const my = 110540;
+
+    const ax = (aLon - lon) * mx;
+    const ay = (aLat - lat) * my;
+    const bx = (bLon - lon) * mx;
+    const by = (bLat - lat) * my;
+
+    const vx = bx - ax;
+    const vy = by - ay;
+    const length2 = vx * vx + vy * vy;
+    if (length2 < 1) return null;
+
+    const t = clamp(-(ax * vx + ay * vy) / length2, 0, 1);
+    const px = ax + vx * t;
+    const py = ay + vy * t;
+
+    return {
+      fraction: t,
+      crossTrack: Math.hypot(px, py),
+      segmentLength: Math.sqrt(length2)
+    };
+  }
+
+  function timeFractionBetweenStops(previousStop, nextStop) {
+    const previousTime = asDate(liveStopTime(previousStop));
+    const nextTime = asDate(liveStopTime(nextStop));
+    if (!previousTime || !nextTime) return 0;
+
+    const span = nextTime.getTime() - previousTime.getTime();
+    if (span <= 0) return 0;
+
+    return clamp((Date.now() - previousTime.getTime()) / span, 0, 1);
+  }
+
+  function resetCurrentStopTracker(live) {
+    live.minDistanceToNext = Infinity;
+    live.enteredNextStopZone = false;
+    live.currentStopTrackedAt = Date.now();
+  }
+
+  function advanceOneStop(live) {
+    const lastIndex = live.stops.length - 1;
+    if (live.nextIndex >= lastIndex) return false;
+
+    live.nextIndex += 1;
+    resetCurrentStopTracker(live);
+    live.justAdvancedAt = Date.now();
+    return true;
+  }
+
+  function updateSequentialStopTracker(position, live) {
     const stops = live.stops;
-    if (!position || !stops.length) return null;
+    const lastIndex = stops.length - 1;
 
-    const accuracy = Number(position.accuracy || 9999);
-    if (accuracy > 180) return null;
+    if (!stops.length || live.nextIndex >= lastIndex) return;
 
-    if (live.metrics && leg.coordinates?.length > 1) {
-      const projection = projectToRoute(position.lat, position.lon, leg.coordinates, live.metrics);
+    const accuracy = Number(position?.accuracy ?? Infinity);
+    const hasGoodGps =
+      position &&
+      Number.isFinite(Number(position.lat)) &&
+      Number.isFinite(Number(position.lon)) &&
+      accuracy <= 160;
 
-      // If the phone is far away from the transit path, don't trust route progress.
-      if (!projection || projection.distance > 350) return null;
-
-      for (let i = Math.max(1, live.nextIndex - 1); i < stops.length; i++) {
-        // Keep a stop as "next" until we are around 25 m past it.
-        if (stops[i].routeProgress >= projection.progress - 25) return i;
+    if (!hasGoodGps) {
+      // Timetable fallback: at most one stop per call and not more often than every 45 s.
+      const suggested = timeBasedNextIndex(stops, live.nextIndex);
+      const now = Date.now();
+      if (
+        suggested > live.nextIndex &&
+        now - Number(live.lastScheduleAdvanceAt || 0) > 45000
+      ) {
+        advanceOneStop(live);
+        live.lastScheduleAdvanceAt = now;
       }
-
-      return stops.length - 1;
+      return;
     }
 
-    // Fallback if the API did not return route geometry.
-    let closestIndex = 0;
-    let closestDistance = Infinity;
-    stops.forEach((stop, i) => {
-      const d = distanceMeters(position.lat, position.lon, stop.lat, stop.lon);
-      if (d < closestDistance) {
-        closestDistance = d;
-        closestIndex = i;
-      }
-    });
+    const nextStop = stops[live.nextIndex];
+    const nextNextStop = stops[Math.min(lastIndex, live.nextIndex + 1)];
+    const distanceToNext = distanceMeters(
+      position.lat, position.lon,
+      nextStop.lat, nextStop.lon
+    );
 
-    if (closestDistance < 120) return Math.min(stops.length - 1, closestIndex + 1);
-    return null;
+    const threshold = clamp(Math.max(45, accuracy * 1.25), 45, 105);
+
+    live.minDistanceToNext = Math.min(
+      Number.isFinite(live.minDistanceToNext) ? live.minDistanceToNext : Infinity,
+      distanceToNext
+    );
+
+    if (distanceToNext <= threshold) {
+      live.enteredNextStopZone = true;
+    }
+
+    // Strongest signal: we have actually been near the stop and are now moving away.
+    if (
+      live.enteredNextStopZone &&
+      live.minDistanceToNext <= threshold &&
+      distanceToNext >= threshold + 55
+    ) {
+      advanceOneStop(live);
+      return;
+    }
+
+    // Secondary signal if GPS skipped the exact stop zone:
+    // only advance when the stop time is clearly past AND the following stop is
+    // significantly closer. This still advances only one stop.
+    const nextTime = asDate(liveStopTime(nextStop));
+    if (
+      nextTime &&
+      Date.now() - nextTime.getTime() > 105000 &&
+      live.nextIndex < lastIndex
+    ) {
+      const distanceToFollowing = distanceMeters(
+        position.lat, position.lon,
+        nextNextStop.lat, nextNextStop.lon
+      );
+
+      if (
+        Number.isFinite(distanceToFollowing) &&
+        distanceToNext > 170 &&
+        distanceToFollowing + 85 < distanceToNext &&
+        distanceToFollowing < 700
+      ) {
+        advanceOneStop(live);
+      }
+    }
   }
+
+  function stableProgressForLiveTrip(live, position) {
+    const stops = live.stops;
+    const lastIndex = stops.length - 1;
+    if (lastIndex <= 0) return 0;
+
+    const nextIndex = clamp(live.nextIndex, 1, lastIndex);
+    const previousIndex = nextIndex - 1;
+    const previousStop = stops[previousIndex];
+    const nextStop = stops[nextIndex];
+
+    let segmentFraction = timeFractionBetweenStops(previousStop, nextStop);
+
+    const accuracy = Number(position?.accuracy ?? Infinity);
+    if (position && accuracy <= 180) {
+      const projected = segmentProjection(position, previousStop, nextStop);
+
+      if (
+        projected &&
+        projected.crossTrack <= Math.max(260, accuracy * 3.2)
+      ) {
+        segmentFraction = projected.fraction;
+      } else {
+        // Safe fallback using only the TWO current stops.
+        const dPrev = distanceMeters(
+          position.lat, position.lon,
+          previousStop.lat, previousStop.lon
+        );
+        const dNext = distanceMeters(
+          position.lat, position.lon,
+          nextStop.lat, nextStop.lon
+        );
+        const total = dPrev + dNext;
+        if (Number.isFinite(total) && total > 1) {
+          segmentFraction = clamp(dPrev / total, 0, 1);
+        }
+      }
+    }
+
+    // Crucial: progress is bounded to the current stop interval.
+    // It is impossible to jump from stop 1 to 26% of a 38-stop ride.
+    let target = ((previousIndex + clamp(segmentFraction, 0, 1)) / lastIndex) * 100;
+
+    // Progress never moves backwards because of GPS jitter.
+    target = Math.max(Number(live.progressTarget || 0), target);
+    live.progressTarget = target;
+
+    if (!Number.isFinite(live.displayedProgress)) {
+      live.displayedProgress = target;
+    } else {
+      // Gentle low-pass filter. A stop transition remains visible but not abrupt.
+      const difference = target - live.displayedProgress;
+      if (difference > 0) {
+        const step = Math.min(
+          difference,
+          Math.max(0.45, Math.min(1.8, difference * 0.38))
+        );
+        live.displayedProgress += step;
+      }
+    }
+
+    return clamp(live.displayedProgress, 0, 100);
+  }
+
 
   function formatEta(stop) {
     const d = asDate(liveStopTime(stop));
@@ -1284,31 +1463,21 @@
     const lastIndex = stops.length - 1;
     const position = live.position;
 
-    let gpsIndex = gpsBasedNextIndex(position, live);
-    const timeIndex = timeBasedNextIndex(stops, live.nextIndex);
+    updateSequentialStopTracker(position, live);
 
-    let candidate = gpsIndex ?? timeIndex;
-    candidate = Math.max(1, Math.min(lastIndex, candidate));
-
-    // Never move backwards during one active ride.
-    live.nextIndex = Math.max(live.nextIndex, candidate);
     const nextIndex = Math.min(lastIndex, live.nextIndex);
     const nextStop = stops[nextIndex];
 
     let distanceToNext = NaN;
-    let routeRatio = nextIndex / lastIndex;
-
     if (position) {
-      distanceToNext = distanceMeters(position.lat, position.lon, nextStop.lat, nextStop.lon);
-
-      if (live.metrics && live.leg.coordinates?.length > 1) {
-        const projection = projectToRoute(position.lat, position.lon, live.leg.coordinates, live.metrics);
-        if (projection && projection.distance < 500) routeRatio = projection.ratio;
-      }
+      distanceToNext = distanceMeters(
+        position.lat, position.lon,
+        nextStop.lat, nextStop.lon
+      );
     }
 
-    routeRatio = Math.max(0, Math.min(1, routeRatio));
-    const progressPct = Math.round(routeRatio * 100);
+    const progressValue = stableProgressForLiveTrip(live, position);
+    const progressPct = Math.round(progressValue);
     const stopsLeft = Math.max(1, lastIndex - nextIndex + 1);
 
     $("#liveTripNextStop").textContent = nextStop.name;
@@ -1320,15 +1489,25 @@
       : "op tijdschema";
 
     $("#liveTripProgressPct").textContent = `${progressPct}%`;
-    $("#liveTripProgressBar").style.width = `${progressPct}%`;
+    $("#liveTripProgressStep").textContent =
+      `halte ${Math.min(lastIndex + 1, nextIndex + 1)} van ${lastIndex + 1}`;
+    $("#liveTripProgressBar").style.width = `${progressValue.toFixed(2)}%`;
     $("#liveTripStopsLeft").textContent = String(stopsLeft);
     $("#liveTripArrival").textContent = liveArrivalLabel(stops[lastIndex]);
 
     if (position) {
       const speedMs = Number(position.speed);
-      $("#liveTripSpeed").textContent = Number.isFinite(speedMs) && speedMs >= 0
-        ? `${Math.round(speedMs * 3.6)} km/u`
-        : "—";
+      if (Number.isFinite(speedMs) && speedMs >= 0) {
+        const currentKmh = speedMs * 3.6;
+        live.smoothedSpeedKmh = Number.isFinite(live.smoothedSpeedKmh)
+          ? (live.smoothedSpeedKmh * 0.72 + currentKmh * 0.28)
+          : currentKmh;
+        $("#liveTripSpeed").textContent = `${Math.round(live.smoothedSpeedKmh)} km/u`;
+      } else {
+        $("#liveTripSpeed").textContent = Number.isFinite(live.smoothedSpeedKmh)
+          ? `${Math.round(live.smoothedSpeedKmh)} km/u`
+          : "—";
+      }
       $("#liveTripAccuracy").textContent = Number.isFinite(Number(position.accuracy))
         ? `±${Math.round(position.accuracy)} m`
         : "—";
@@ -1412,6 +1591,7 @@
         if (idx >= 1) live.nextIndex = idx;
       }
 
+      resetCurrentStopTracker(live);
       renderLiveTrip();
     } catch (error) {
       // Live Trip keeps working with the last known timetable + GPS.
@@ -1505,7 +1685,15 @@
       wakeLock: null,
       followMap: false,
       warnedReady: false,
-      warnedNow: false
+      warnedNow: false,
+      minDistanceToNext: Infinity,
+      enteredNextStopZone: false,
+      currentStopTrackedAt: Date.now(),
+      lastScheduleAdvanceAt: 0,
+      justAdvancedAt: 0,
+      progressTarget: 0,
+      displayedProgress: 0,
+      smoothedSpeedKmh: NaN
     };
 
     $("#liveTripSession").classList.remove("hidden");
