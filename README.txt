@@ -1,48 +1,38 @@
-OVFlow 2.0 — STABIELE LIVE TRIP
+OVFlow 2.0 v10 — PREMIUM UNIVERSAL LIVE TRIP
 
-Deze versie focust op twee dingen:
-1. Mooier OVFlow 2.0 Live Trip design.
-2. Een stabiele voortgang die niet meer zomaar van 1% naar 26% springt.
+Deze versie voert het universele Live Trip ontwerp uit voor bus, tram en trein.
 
-BELANGRIJKSTE FIX
-De oude Live Trip berekende het percentage met de projectie op de volledige routegeometrie.
-Bij lijnen met bochten, parallelle straten, lussen of een routegeometrie die al vóór jouw
-instaphalte begon, kon GPS op een verkeerd stuk van de lijn projecteren. Daardoor kon de
-voortgang bijvoorbeeld ineens van 1% naar 26% springen.
+Belangrijk:
+- Bestaande stabiele segment-gebaseerde GPS-voortgang uit v9 blijft behouden.
+- Geen terugkeer naar projectie op de volledige route.
+- Browser-only / GitHub Pages blijft behouden.
+- De Lijn, Transitous/MOTIS, iRail en MapLibre blijven behouden.
 
-OVFlow 2.0 gebruikt nu:
-- alleen de twee opeenvolgende haltes van het HUIDIGE segment;
-- GPS-projectie tussen die twee haltes;
-- haltevolgorde als harde begrenzing;
-- één halte per bevestigde overgang;
-- GPS-zone: eerst de halte naderen, daarna pas bij wegrijden markeren als voorbij;
-- conservatieve tijdfallback als GPS tijdelijk slecht is;
-- nooit achteruit springen door GPS-jitter;
-- vloeiende filtering van het percentage;
-- gladgestreken snelheid.
+Nieuw design:
+- Ultra-premium donkere Liquid Glass Live Trip
+- Dynamische Bus / Tram / Trein termen
+- Volgende halte of Volgend station
+- Realtime badge: op tijd / vertraging / vroeger / neutraal als vergelijking ontbreekt
+- Relevante statuscards worden alleen getoond als echte data beschikbaar is
+- Trein toont spoor indien aanwezig
+- Voertuig/treinnummer alleen als de databron dit levert
+- Bezetting alleen als de databron dit levert
+- Rit overzicht toont de volledige halte-/stationtimeline
+- Timeline wordt NIET bij iedere GPS-update opnieuw opgebouwd; alleen statusclasses worden bijgewerkt
+- Realtime info kaart verzint nooit een oorzaak voor vertraging
+- Werkende Bewaar rit knop via localStorage
+- Werkende realtime refreshknop
+- Bottom navigation: Home / Vertrekken / Live / Data / Instellingen
+- Live-tab wordt actief tijdens een Live Trip
 
-VOORBEELD
-Als je tussen halte 1 en 2 van 38 zit:
-- minimale voortgang: 0 / 37
-- maximale voortgang vóór halte 2: 1 / 37 ≈ 2,7%
+Stabiliteit:
+- GPS watch wordt bij stoppen opgeruimd
+- timers worden opgeruimd
+- haltevolgorde schuift maximaal sequentieel vooruit
+- progressie kan niet door een route-lus plots naar een groot percentage springen
+- snelheid blijft gladgestreken
+- geen undefined/null/NaN placeholders voor optionele data
 
-OVFlow kan dus op dat moment onmogelijk ineens 26% tonen.
-
-UI 2.0
-- modernere Live Trip-kaart
-- rustigere glaslagen
-- sterkere hiërarchie voor volgende halte
-- dikkere, vloeiendere voortgangsbalk
-- percentage + 'halte X van Y'
-- mooiere huidige-halte highlight
-- ruimere statistiektegels
-- OVFlow 2.0 branding
-
-Deze versie blijft BROWSER-ONLY:
-- geen eigen server nodig
-- De Lijn Core API rechtstreeks
-- Transitous/MOTIS
-- iRail voor NMBS
-- OpenStreetMap/MapLibre
-
-Open OVFlow via GitHub Pages/HTTPS of localhost.
+GitHub Pages:
+Upload alle bestanden uit deze ZIP over je huidige OVFlow-bestanden.
+Daarna eventueel ?v=10 achter je GitHub Pages URL zetten om Safari-cache te omzeilen.

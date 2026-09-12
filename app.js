@@ -257,7 +257,7 @@
     $("#emptyCard").classList.add("hidden");
     $("#departures").innerHTML = "";
     $("#refreshButton").classList.add("spinning");
-    $("#navRefresh").classList.add("spinning");
+    $("#navRefresh")?.classList.add("spinning");
     setApiState("loading", "Verbinden…");
 
     try {
@@ -303,7 +303,7 @@
     } finally {
       state.loading = false;
       $("#refreshButton").classList.remove("spinning");
-      $("#navRefresh").classList.remove("spinning");
+      $("#navRefresh")?.classList.remove("spinning");
     }
   }
 
@@ -727,7 +727,7 @@
 
   $("#refreshButton").addEventListener("click", fetchLive);
   $("#refreshNowButton").addEventListener("click", fetchLive);
-  $("#navRefresh").addEventListener("click", fetchLive);
+  $("#navRefresh")?.addEventListener("click", fetchLive);
   $("#retryButton").addEventListener("click", fetchLive);
   $("#apiStatusButton").addEventListener("click", fetchLive);
 
@@ -768,8 +768,13 @@
       button.classList.add("active");
       const target = button.dataset.target;
       if (target === "home") window.scrollTo({ top:0, behavior:"smooth" });
-      if (target === "departures") $(".departures-panel").scrollIntoView({ behavior:"smooth", block:"start" });
-      if (target === "data") $(".real-map-panel").scrollIntoView({ behavior:"smooth", block:"start" });
+      if (target === "departures") $(".departures-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
+      if (target === "live") {
+        const liveSession = $("#liveTripSession");
+        const destination = liveSession && !liveSession.classList.contains("hidden") ? liveSession : $("#quickLivePanel");
+        destination?.scrollIntoView({ behavior:"smooth", block:"start" });
+      }
+      if (target === "data") $(".real-map-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
     });
   });
 

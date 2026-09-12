@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#06121b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow 2.0 — Stabiele Live Trip</title>
+  <title>OVFlow 2.0 — Premium Live Trip</title>
   <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -252,33 +252,41 @@
       </section>
 
 
-      <section class="panel live-trip-session hidden" id="liveTripSession">
+      <section class="panel live-trip-session hidden" id="liveTripSession" data-live-mode="bus">
         <div class="live-trip-session-head">
-          <div>
-            <span class="section-kicker">OVFlow 2.0 · Live Trip</span>
+          <div class="live-trip-title-wrap">
+            <span class="section-kicker">OVFLOW 2.0 · LIVE TRIP</span>
             <h2 id="liveTripTitle">Je rit volgen</h2>
+            <p id="liveTripDirection">Richting —</p>
           </div>
           <div class="live-trip-head-actions">
             <span class="live-trip-gps" id="liveTripGps"><i></i><span>GPS starten…</span></span>
-            <button type="button" class="live-trip-close" id="liveTripClose" aria-label="Stop Live Trip">×</button>
+            <button type="button" class="live-trip-close" id="liveTripClose" aria-label="Stop Live Trip">
+              <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"></path></svg>
+            </button>
           </div>
         </div>
 
-        <div class="live-trip-hero">
+        <div class="live-trip-hero premium-live-hero">
           <div class="live-trip-line-badge" id="liveTripLine">—</div>
           <div class="live-trip-heading">
-            <span id="liveTripDirection">Richting —</span>
+            <span class="live-trip-next-kind" id="liveTripNextKind">VOLGENDE HALTE</span>
             <strong id="liveTripNextStop">Volgende halte laden…</strong>
-            <small id="liveTripNextMeta">GPS en dienstregeling worden gecombineerd</small>
+            <small id="liveTripHeroDirection">Richting —</small>
+            <div class="live-trip-hero-meta" id="liveTripNextMeta">GPS en dienstregeling worden gecombineerd</div>
           </div>
           <div class="live-trip-countdown">
             <strong id="liveTripEta">—</strong>
-            <span id="liveTripDistance">—</span>
+            <span class="live-trip-delay-badge neutral" id="liveTripRealtimeBadge">LIVE</span>
+            <small id="liveTripDistance">—</small>
+            <small id="liveTripHeroExtra" class="live-trip-hero-extra hidden"></small>
           </div>
         </div>
 
         <div class="live-trip-alert normal" id="liveTripAlert">
-          <span class="live-trip-alert-icon">●</span>
+          <span class="live-trip-alert-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
+          </span>
           <div>
             <strong id="liveTripAlertTitle">Rit actief</strong>
             <small id="liveTripAlertText">OVFlow volgt je positie langs de route.</small>
@@ -297,49 +305,98 @@
           <div class="live-trip-progress"><i id="liveTripProgressBar"></i></div>
         </div>
 
-        <div class="live-trip-stats">
-          <div>
-            <span>Nog haltes</span>
-            <strong id="liveTripStopsLeft">—</strong>
-          </div>
-          <div>
+        <div class="live-trip-status-grid" id="liveTripStatusGrid">
+          <article class="live-trip-status-card" data-stat="status">
+            <span>Ritstatus</span>
+            <strong id="liveTripRideStatus">Actief</strong>
+            <small id="liveTripRideStatusMeta">Live Trip actief</small>
+          </article>
+          <article class="live-trip-status-card hidden" data-stat="delay">
+            <span>Vertraging</span>
+            <strong id="liveTripDelay">—</strong>
+            <small id="liveTripDelayMeta">Realtime</small>
+          </article>
+          <article class="live-trip-status-card hidden" data-stat="vehicle">
+            <span id="liveTripVehicleLabel">Voertuig</span>
+            <strong id="liveTripVehicle">—</strong>
+            <small id="liveTripVehicleMeta">Rit</small>
+          </article>
+          <article class="live-trip-status-card hidden" data-stat="occupancy">
+            <span>Bezetting</span>
+            <strong id="liveTripOccupancy">—</strong>
+            <small>Indien beschikbaar</small>
+          </article>
+          <article class="live-trip-status-card" data-stat="arrival">
             <span>Aankomst</span>
             <strong id="liveTripArrival">—</strong>
-          </div>
-          <div>
+            <small id="liveTripArrivalMeta">Eindbestemming</small>
+          </article>
+          <article class="live-trip-status-card" data-stat="remaining">
+            <span id="liveTripStopsLabel">Nog haltes</span>
+            <strong id="liveTripStopsLeft">—</strong>
+            <small id="liveTripRemainingMeta">Tot uitstappen</small>
+          </article>
+          <article class="live-trip-status-card hidden" data-stat="platform">
+            <span id="liveTripPlatformLabel">Spoor</span>
+            <strong id="liveTripPlatform">—</strong>
+            <small>Volgend station</small>
+          </article>
+          <article class="live-trip-status-card hidden" data-stat="speed">
             <span>Snelheid</span>
             <strong id="liveTripSpeed">—</strong>
-          </div>
-          <div>
-            <span>GPS</span>
+            <small>GPS-meting</small>
+          </article>
+          <article class="live-trip-status-card" data-stat="gps">
+            <span>GPS / locatie</span>
             <strong id="liveTripAccuracy">—</strong>
-          </div>
+            <small id="liveTripGpsMeta">Nauwkeurigheid</small>
+          </article>
         </div>
 
-        <div class="live-trip-upcoming">
-          <div class="live-trip-upcoming-head">
+        <div class="live-trip-overview">
+          <div class="live-trip-overview-head">
             <div>
-              <span class="section-kicker">Volgende haltes</span>
-              <h3>Onderweg</h3>
+              <span class="section-kicker">Rit overzicht</span>
+              <h3 id="liveTripOverviewTitle">Onderweg</h3>
             </div>
-            <span class="live-trip-realtime" id="liveTripRealtime">DIENSTREGELING</span>
+            <button type="button" class="live-trip-map-button compact" id="liveTripMapButton">
+              <svg viewBox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
+              <span>Volg op kaart</span>
+            </button>
           </div>
-          <div class="live-trip-stop-list" id="liveTripStopList"></div>
+          <div class="live-trip-stop-list premium-timeline" id="liveTripStopList"></div>
         </div>
 
-        <div class="live-trip-actions">
-          <button type="button" class="live-trip-map-button" id="liveTripMapButton">
-            <span>⌖</span>
-            <span><strong>Volg op kaart</strong><small>Toon jouw positie op de rit</small></span>
+        <div class="live-trip-realtime-card" id="liveTripRealtimeCard">
+          <span class="live-trip-realtime-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></svg>
+          </span>
+          <div class="live-trip-realtime-copy">
+            <span class="section-kicker">Realtime info</span>
+            <strong id="liveTripRealtimeMessage">Live ritgegevens actief</strong>
+            <small id="liveTripRealtimeDetail">OVFlow combineert realtime-data, haltevolgorde en GPS.</small>
+          </div>
+          <div class="live-trip-realtime-update">
+            <span id="liveTripLastUpdate">Laatste update —</span>
+            <button type="button" id="liveTripRefreshButton" aria-label="Vernieuw realtime ritgegevens">
+              <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="live-trip-actions premium-actions">
+          <button type="button" class="live-trip-save-button" id="liveTripSaveButton">
+            <svg viewBox="0 0 24 24"><path d="M6 4h12v17l-6-4-6 4V4Z"></path></svg>
+            <span><strong>Bewaar rit</strong><small>Opslaan op dit toestel</small></span>
           </button>
           <button type="button" class="live-trip-stop-button" id="liveTripStopButton">
-            Stop Live Trip
+            <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"></rect></svg>
+            <span>Stop Live Trip</span>
           </button>
         </div>
 
         <p class="live-trip-note">
-          Live Trip gebruikt je GPS voor je positie en de live dienstregeling voor de haltes. 
-          Op iPhone werkt volgen het betrouwbaarst terwijl OVFlow open blijft.
+          Live Trip gebruikt je GPS en actuele OV-data. Op iPhone werkt volgen het betrouwbaarst terwijl OVFlow zichtbaar blijft.
         </p>
       </section>
 
@@ -519,7 +576,7 @@
       </footer>
     </main>
 
-    <nav class="bottom-nav">
+    <nav class="bottom-nav" aria-label="Hoofdnavigatie">
       <button class="nav-item active" data-target="home">
         <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"></path><path d="M5 10v10h14V10"></path></svg>
         <small>Home</small>
@@ -528,8 +585,9 @@
         <svg viewBox="0 0 24 24"><path d="M5 17h14M7 17V7c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 8h6"></path></svg>
         <small>Vertrekken</small>
       </button>
-      <button class="nav-main" id="navRefresh" aria-label="Vernieuw live data">
-        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
+      <button class="nav-item nav-live" data-target="live" id="navLiveTab">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"></path><circle cx="12" cy="12" r="2"></circle></svg>
+        <small>Live</small>
       </button>
       <button class="nav-item" data-target="data">
         <svg viewBox="0 0 24 24"><path d="M4 18V9M10 18V5M16 18v-7M22 18V3"></path></svg>
@@ -547,7 +605,7 @@
     <div class="sheet-handle"></div>
     <div class="sheet-head">
       <div>
-        <span class="section-kicker">OVFlow v7</span>
+        <span class="section-kicker">OVFlow 2.0</span>
         <h2>Live halte instellen</h2>
       </div>
       <button class="icon-button" id="closeSettings" aria-label="Sluiten">

@@ -505,6 +505,25 @@
       leg.trip?.vehicle ||
       "";
 
+    const occupancy =
+      leg.occupancyStatus ||
+      leg.occupancy ||
+      leg.vehicleOccupancy ||
+      leg.trip?.occupancyStatus ||
+      "";
+
+    const scheduledStart =
+      leg.scheduledStartTime ??
+      leg.scheduledDeparture ??
+      leg.from?.scheduledDeparture ??
+      null;
+
+    const scheduledEnd =
+      leg.scheduledEndTime ??
+      leg.scheduledArrival ??
+      leg.to?.scheduledArrival ??
+      null;
+
     return {
       type: mode === "WALK" ? "walk" : "transit",
       mode,
@@ -517,6 +536,9 @@
       tripId: String(tripId || ""),
       tripShortName: String(tripShortName || ""),
       vehicleCandidate: String(vehicleCandidate || ""),
+      occupancy: String(occupancy || ""),
+      scheduledStart,
+      scheduledEnd,
       start,
       end,
       duration: Number(leg.duration || 0),
@@ -1413,6 +1435,236 @@
     } catch {}
   }
 
+
+  function liveVocabulary(leg) {
+    const mode = String(leg?.mode || "").toUpperCase();
+    const rail = isRailMode(mode);
+    const tram = mode === "TRAM";
+    const metro = mode === "SUBWAY";
+    return {
+      rail,
+      tram,
+      metro,
+      type: rail ? "train" : tram ? "tram" : metro ? "metro" : "bus",
+      vehicle: rail ? "Trein" : tram ? "Tram" : metro ? "Metro" : "Bus",
+      stop: rail ? "station" : "halte",
+      stops: rail ? "stations" : "haltes",
+      next: rail ? "Volgend station" : "Volgende halte",
+      final: rail ? "Eindstation" : "Eindhalte",
+      platform: rail ? "Spoor" : "Perron"
+    };
+  }
+
+  function serviceDisplayName(leg) {
+    const vocab = liveVocabulary(leg);
+    const line = String(leg?.line || "").trim();
+    const trip = String(leg?.tripShortName || "").trim();
+    let suffix = line;
+
+    if (vocab.rail && trip && !line.includes(trip)) suffix = [line, trip].filter(Boolean).join(" ");
+    if (!suffix) suffix = trip;
+    return [vocab.vehicle, suffix].filter(Boolean).join(" ");
+  }
+
+  function liveDelayInfo(leg, stop = null) {
+    const expected = asDate(
+      stop?.arrival ?? stop?.departure ?? leg?.start ?? null
+    );
+    const scheduled = asDate(
+      stop?.scheduledArrival ?? stop?.scheduledDeparture ?? leg?.scheduledStart ?? null
+    );
+
+    if (!expected || !scheduled) {
+      return {
+        available: false,
+        minutes: null,
+        text: leg?.realtime ? "Realtime" : "Dienstregeling",
+        className: "neutral"
+      };
+    }
+
+    const minutes = Math.round((expected.getTime() - scheduled.getTime()) / 60000);
+    if (minutes > 0) return { available: true, minutes, text: `+${minutes} min`, className: "late" };
+    if (minutes < 0) return { available: true, minutes, text: `${minutes} min`, className: "early" };
+    return { available: true, minutes: 0, text: "Op tijd", className: "ontime" };
+  }
+
+  function occupancyLabel(value) {
+    const raw = String(value || "").toUpperCase();
+    const map = {
+      EMPTY: "Rustig",
+      MANY_SEATS_AVAILABLE: "Rustig",
+      FEW_SEATS_AVAILABLE: "Matig",
+      STANDING_ROOM_ONLY: "Druk",
+      CRUSHED_STANDING_ROOM_ONLY: "Zeer druk",
+      FULL: "Vol"
+    };
+    return map[raw] || (value ? String(value) : "");
+  }
+
+  function setLiveStatVisibility(name, visible) {
+    const card = document.querySelector(`[data-stat="${name}"]`);
+    card?.classList.toggle("hidden", !visible);
+  }
+
+  function setLiveNavActive(active) {
+    const liveTab = $("#navLiveTab");
+    if (!liveTab) return;
+    if (active) {
+      document.querySelectorAll(".bottom-nav .nav-item").forEach(item => item.classList.remove("active"));
+      liveTab.classList.add("active");
+    }
+  }
+
+  function buildLiveTripTimeline(live) {
+    const list = $("#liveTripStopList");
+    if (!list) return;
+    const vocab = liveVocabulary(live.leg);
+    const lastIndex = live.stops.length - 1;
+
+    list.innerHTML = live.stops.map((stop, index) => {
+      const delay = liveDelayInfo(live.leg, stop);
+      const scheduled = asDate(stop.scheduledArrival ?? stop.scheduledDeparture);
+      const expected = asDate(liveStopTime(stop));
+      const delayText = delay.available && delay.minutes !== 0 ? delay.text : "";
+      const platform = stop.track ? `${vocab.platform.toLowerCase()} ${esc(stop.track)}` : "";
+      return `
+        <div class="live-trip-stop-row" data-live-stop-index="${index}">
+          <div class="live-trip-stop-dot"><i></i></div>
+          <div class="live-trip-stop-copy">
+            <div class="live-trip-stop-name-row">
+              <strong>${esc(stop.name)}</strong>
+              <span class="live-stop-active-badge hidden" data-live-stop-badge="${index}"></span>
+            </div>
+            <span data-live-stop-status="${index}">${index === 0 ? "Vertrek" : index === lastIndex ? vocab.final : "Gepland"}</span>
+            <small>${[platform, delayText].filter(Boolean).join(" · ")}</small>
+          </div>
+          <div class="live-trip-stop-time">
+            <strong>${expected ? timeText(expected) : "--:--"}</strong>
+            ${scheduled && expected && Math.abs(expected - scheduled) >= 60000 ? `<small>${timeText(scheduled)}</small>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  function updateLiveTripTimeline(live, nextIndex) {
+    const vocab = liveVocabulary(live.leg);
+    const lastIndex = live.stops.length - 1;
+    const rows = $("#liveTripStopList")?.querySelectorAll("[data-live-stop-index]") || [];
+
+    rows.forEach(row => {
+      const index = Number(row.dataset.liveStopIndex);
+      const passed = index < nextIndex;
+      const current = index === nextIndex;
+      const destination = index === lastIndex;
+      row.classList.toggle("passed", passed);
+      row.classList.toggle("current", current);
+      row.classList.toggle("destination", destination);
+
+      const status = row.querySelector(`[data-live-stop-status="${index}"]`);
+      const badge = row.querySelector(`[data-live-stop-badge="${index}"]`);
+      if (status) {
+        status.textContent = destination
+          ? (current ? "Uitstappen" : vocab.final)
+          : current
+            ? vocab.next
+            : passed
+              ? "Voorbij"
+              : "Daarna";
+      }
+      if (badge) {
+        badge.classList.toggle("hidden", !current);
+        badge.textContent = current ? "ACTIEF" : "";
+      }
+    });
+  }
+
+  function updateLiveRealtimeCard(live, nextStop) {
+    const delay = liveDelayInfo(live.leg, nextStop);
+    const message = $("#liveTripRealtimeMessage");
+    const detail = $("#liveTripRealtimeDetail");
+    const lastUpdate = $("#liveTripLastUpdate");
+
+    if (message) {
+      if (delay.available && delay.minutes > 0) message.textContent = `${delay.text} vertraging`;
+      else if (delay.available && delay.minutes < 0) message.textContent = `${Math.abs(delay.minutes)} min vroeger dan gepland`;
+      else if (delay.available) message.textContent = "Deze rit rijdt momenteel op tijd";
+      else message.textContent = live.leg.realtime ? "Realtime ritgegevens actief" : "Dienstregeling actief";
+    }
+    if (detail) {
+      detail.textContent = delay.available
+        ? "OVFlow toont alleen een oorzaak wanneer de databron die werkelijk meegeeft."
+        : "OVFlow combineert haltevolgorde, dienstregeling en GPS zonder een oorzaak te verzinnen.";
+    }
+    if (lastUpdate) lastUpdate.textContent = `Laatste update ${timeText(new Date())}`;
+  }
+
+  function updateLiveStatusCards(live, nextStop, nextIndex, distanceToNext) {
+    const vocab = liveVocabulary(live.leg);
+    const lastIndex = live.stops.length - 1;
+    const destinationNext = nextIndex === lastIndex;
+    const delay = liveDelayInfo(live.leg, nextStop);
+    const vehicle = live.leg.vehicleCandidate || live.leg.tripShortName || "";
+    const occupancy = occupancyLabel(live.leg.occupancy);
+    const platform = nextStop?.track || "";
+
+    $("#liveTripRideStatus").textContent = destinationNext && Number.isFinite(distanceToNext) && distanceToNext <= 400 ? "Bijna daar" : "Actief";
+    $("#liveTripRideStatusMeta").textContent = destinationNext ? `${vocab.next}: uitstappen` : "Live Trip actief";
+
+    setLiveStatVisibility("delay", delay.available);
+    if (delay.available) {
+      $("#liveTripDelay").textContent = delay.text;
+      $("#liveTripDelayMeta").textContent = live.leg.realtime ? "Realtime" : "Dienstregeling";
+    }
+
+    setLiveStatVisibility("vehicle", Boolean(vehicle));
+    if (vehicle) {
+      $("#liveTripVehicleLabel").textContent = vocab.rail ? "Treinnummer" : vocab.vehicle;
+      $("#liveTripVehicle").textContent = vehicle;
+      $("#liveTripVehicleMeta").textContent = serviceDisplayName(live.leg);
+    }
+
+    setLiveStatVisibility("occupancy", Boolean(occupancy));
+    if (occupancy) $("#liveTripOccupancy").textContent = occupancy;
+
+    setLiveStatVisibility("platform", Boolean(platform));
+    if (platform) {
+      $("#liveTripPlatformLabel").textContent = vocab.platform;
+      $("#liveTripPlatform").textContent = platform;
+    }
+
+    $("#liveTripArrivalMeta").textContent = live.stops[lastIndex]?.name || "Eindbestemming";
+    $("#liveTripStopsLabel").textContent = `Nog ${vocab.stops}`;
+    $("#liveTripRemainingMeta").textContent = `Tot ${vocab.rail ? "uitstapstation" : "uitstaphalte"}`;
+  }
+
+  function saveCurrentLiveTrip() {
+    const live = planner.live;
+    if (!live?.active || !live.leg) return;
+    const key = "ovflow:savedTrips";
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(key) || "[]"); } catch { saved = []; }
+    const item = {
+      id: live.leg.tripId || `${live.leg.mode}-${live.leg.line}-${live.leg.start}`,
+      mode: live.leg.mode,
+      line: live.leg.line,
+      title: serviceDisplayName(live.leg),
+      headsign: live.leg.headsign,
+      from: live.leg.from,
+      to: live.leg.to,
+      savedAt: Date.now()
+    };
+    saved = [item, ...saved.filter(x => x.id !== item.id)].slice(0, 20);
+    localStorage.setItem(key, JSON.stringify(saved));
+    const button = $("#liveTripSaveButton");
+    if (button) {
+      button.classList.add("saved");
+      button.querySelector("strong").textContent = "Rit bewaard";
+      button.querySelector("small").textContent = "Op dit toestel opgeslagen";
+    }
+    toast("Rit bewaard");
+  }
+
   function updateLiveTripAlert(nextStop, nextIndex, distanceToNext) {
     const live = planner.live;
     const lastIndex = live.stops.length - 1;
@@ -1423,13 +1675,15 @@
 
     alert.className = "live-trip-alert normal";
 
+    const vocab = liveVocabulary(live.leg);
+
     if (isDestinationNext) {
       alert.classList.add("destination");
 
       if (Number.isFinite(distanceToNext) && distanceToNext <= 90) {
         alert.className = "live-trip-alert now";
         title.textContent = "Nu uitstappen";
-        text.textContent = `${nextStop.name} is jouw uitstaphalte.`;
+        text.textContent = `${nextStop.name} is jouw ${vocab.rail ? "uitstapstation" : "uitstaphalte"}.`;
         if (!live.warnedNow) {
           live.warnedNow = true;
           maybeVibrate([180, 90, 180, 90, 260]);
@@ -1443,15 +1697,15 @@
           maybeVibrate([160, 100, 160]);
         }
       } else {
-        title.textContent = "Volgende halte: uitstappen";
+        title.textContent = `${vocab.next}: uitstappen`;
         text.textContent = `Stap uit bij ${nextStop.name}.`;
       }
     } else {
       const remainingAfterNext = lastIndex - nextIndex;
       title.textContent = "Rit actief";
       text.textContent = remainingAfterNext > 0
-        ? `Na ${nextStop.name} volgen nog ${remainingAfterNext} halte${remainingAfterNext === 1 ? "" : "s"} tot je uitstaphalte.`
-        : `Volgende halte: ${nextStop.name}.`;
+        ? `Na ${nextStop.name} volgen nog ${remainingAfterNext} ${remainingAfterNext === 1 ? vocab.stop : vocab.stops} tot je ${vocab.rail ? "uitstapstation" : "uitstaphalte"}.`
+        : `${vocab.next}: ${nextStop.name}.`;
     }
   }
 
@@ -1480,17 +1734,27 @@
     const progressPct = Math.round(progressValue);
     const stopsLeft = Math.max(1, lastIndex - nextIndex + 1);
 
+    const vocab = liveVocabulary(live.leg);
+    const delay = liveDelayInfo(live.leg, nextStop);
+    $("#liveTripSession")?.setAttribute("data-live-mode", vocab.type);
+    $("#liveTripNextKind").textContent = vocab.next.toUpperCase();
     $("#liveTripNextStop").textContent = nextStop.name;
-    $("#liveTripEta").textContent = formatEta(nextStop);
+    $("#liveTripEta").textContent = timeText(asDate(liveStopTime(nextStop))) || "—";
+    $("#liveTripRealtimeBadge").textContent = delay.text;
+    $("#liveTripRealtimeBadge").className = `live-trip-delay-badge ${delay.className}`;
     $("#liveTripDistance").textContent = Number.isFinite(distanceToNext)
       ? distanceToNext < 1000
         ? `${Math.round(distanceToNext)} m`
         : `${(distanceToNext / 1000).toFixed(1).replace(".", ",")} km`
-      : "op tijdschema";
+      : formatEta(nextStop);
+
+    const platformText = vocab.rail && nextStop.track ? `${vocab.platform} ${nextStop.track}` : "";
+    $("#liveTripHeroExtra").textContent = platformText;
+    $("#liveTripHeroExtra").classList.toggle("hidden", !platformText);
 
     $("#liveTripProgressPct").textContent = `${progressPct}%`;
     $("#liveTripProgressStep").textContent =
-      `halte ${Math.min(lastIndex + 1, nextIndex + 1)} van ${lastIndex + 1}`;
+      `${vocab.stop} ${Math.min(lastIndex + 1, nextIndex + 1)} van ${lastIndex + 1}`;
     $("#liveTripProgressBar").style.width = `${progressValue.toFixed(2)}%`;
     $("#liveTripStopsLeft").textContent = String(stopsLeft);
     $("#liveTripArrival").textContent = liveArrivalLabel(stops[lastIndex]);
@@ -1503,6 +1767,7 @@
           ? (live.smoothedSpeedKmh * 0.72 + currentKmh * 0.28)
           : currentKmh;
         $("#liveTripSpeed").textContent = `${Math.round(live.smoothedSpeedKmh)} km/u`;
+        setLiveStatVisibility("speed", true);
       } else {
         $("#liveTripSpeed").textContent = Number.isFinite(live.smoothedSpeedKmh)
           ? `${Math.round(live.smoothedSpeedKmh)} km/u`
@@ -1511,40 +1776,26 @@
       $("#liveTripAccuracy").textContent = Number.isFinite(Number(position.accuracy))
         ? `±${Math.round(position.accuracy)} m`
         : "—";
+      $("#liveTripGpsMeta").textContent = Number(position.accuracy) <= 80 ? "Goede positie" : "Minder nauwkeurig";
     } else {
       $("#liveTripSpeed").textContent = "—";
-      $("#liveTripAccuracy").textContent = "tijdmodus";
+      setLiveStatVisibility("speed", false);
+      $("#liveTripAccuracy").textContent = "Tijdmodus";
+      $("#liveTripGpsMeta").textContent = "GPS tijdelijk niet beschikbaar";
     }
 
     const time = asDate(liveStopTime(nextStop));
-    const etaMeta = time ? `verwacht ${timeText(time)}` : "verwachte tijd niet beschikbaar";
+    const etaMeta = time ? `Verwacht ${timeText(time)}` : "Verwachte tijd niet beschikbaar";
+    const minutesToNext = time ? Math.max(0, Math.round((time.getTime() - Date.now()) / 60000)) : null;
     $("#liveTripNextMeta").textContent =
       nextIndex === lastIndex
         ? `${etaMeta} · hier uitstappen`
-        : `${etaMeta} · ${stopsLeft} halte${stopsLeft === 1 ? "" : "s"} tot uitstappen`;
+        : `${etaMeta}${minutesToNext != null ? ` · nog ${minutesToNext} min` : ""}`;
+    $("#liveTripHeroDirection").textContent = live.leg.headsign ? `Richting ${live.leg.headsign}` : `${live.leg.from} → ${live.leg.to}`;
 
-    $("#liveTripRealtime").textContent = live.leg.realtime ? "LIVE" : "DIENSTREGELING";
-
-    const listStart = Math.max(0, nextIndex - 1);
-    const listEnd = Math.min(stops.length, nextIndex + 5);
-    $("#liveTripStopList").innerHTML = stops.slice(listStart, listEnd).map((stop, localIndex) => {
-      const i = listStart + localIndex;
-      const passed = i < nextIndex;
-      const current = i === nextIndex;
-      const destination = i === lastIndex;
-      const timeValue = liveArrivalLabel(stop);
-
-      return `
-        <div class="live-trip-stop-row ${passed ? "passed" : ""} ${current ? "current" : ""} ${destination ? "destination" : ""}">
-          <div class="live-trip-stop-dot"><i></i></div>
-          <div class="live-trip-stop-copy">
-            <strong>${esc(stop.name)}</strong>
-            <span>${destination ? "Uitstappen" : current ? "Volgende halte" : passed ? "Voorbij" : "Daarna"}</span>
-          </div>
-          <div class="live-trip-stop-time">${timeValue}</div>
-        </div>`;
-    }).join("");
-
+    updateLiveStatusCards(live, nextStop, nextIndex, distanceToNext);
+    updateLiveTripTimeline(live, nextIndex);
+    updateLiveRealtimeCard(live, nextStop);
     updateLiveTripAlert(nextStop, nextIndex, distanceToNext);
 
     bridge.updateLiveTripMap?.({
@@ -1592,6 +1843,7 @@
       }
 
       resetCurrentStopTracker(live);
+      buildLiveTripTimeline(live);
       renderLiveTrip();
     } catch (error) {
       // Live Trip keeps working with the last known timetable + GPS.
@@ -1696,13 +1948,21 @@
       smoothedSpeedKmh: NaN
     };
 
+    const vocab = liveVocabulary(leg);
     $("#liveTripSession").classList.remove("hidden");
-    $("#liveTripTitle").textContent = `${modeLabel(leg.mode)} ${leg.line || ""}`.trim();
-    $("#liveTripLine").textContent = leg.line || modeLabel(leg.mode);
+    $("#liveTripSession").setAttribute("data-live-mode", vocab.type);
+    $("#liveTripTitle").textContent = serviceDisplayName(leg);
+    $("#liveTripLine").textContent = leg.line || leg.tripShortName || vocab.vehicle;
     $("#liveTripDirection").textContent = leg.headsign ? `Richting ${leg.headsign}` : `${leg.from} → ${leg.to}`;
     $("#liveTripFromLabel").textContent = leg.from;
     $("#liveTripToLabel").textContent = leg.to;
+    $("#liveTripOverviewTitle").textContent = `${vocab.vehicle}rit · ${live.stops.length} ${vocab.stops}`;
     $("#liveTripMapButton").classList.remove("active");
+    $("#liveTripSaveButton")?.classList.remove("saved");
+    if ($("#liveTripSaveButton strong")) $("#liveTripSaveButton strong").textContent = "Bewaar rit";
+    if ($("#liveTripSaveButton small")) $("#liveTripSaveButton small").textContent = "Opslaan op dit toestel";
+    buildLiveTripTimeline(planner.live);
+    setLiveNavActive(true);
 
     renderLiveTrip();
     startLiveGps();
@@ -1731,6 +1991,10 @@
     bridge.clearLiveTripMap?.();
 
     if (hide) $("#liveTripSession")?.classList.add("hidden");
+    if (hide) {
+      $("#navLiveTab")?.classList.remove("active");
+      document.querySelector('.bottom-nav .nav-item[data-target="home"]')?.classList.add("active");
+    }
 
     if (planner.live) {
       planner.live.active = false;
@@ -1857,6 +2121,15 @@
   $("#liveTripClose").addEventListener("click", () => stopLiveTrip(true));
   $("#liveTripStopButton").addEventListener("click", () => stopLiveTrip(true));
   $("#liveTripMapButton").addEventListener("click", toggleLiveMap);
+  $("#liveTripSaveButton").addEventListener("click", saveCurrentLiveTrip);
+  $("#liveTripRefreshButton").addEventListener("click", async () => {
+    const button = $("#liveTripRefreshButton");
+    if (button?.classList.contains("spinning")) return;
+    button?.classList.add("spinning");
+    await refreshLiveTripData();
+    button?.classList.remove("spinning");
+    if (planner.live.active) renderLiveTrip();
+  });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && planner.live.active && !planner.live.wakeLock) {
