@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#06121b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow v6 — Live Trip</title>
+  <title>OVFlow v7 — NMBS + alle haltes</title>
   <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -406,6 +406,10 @@
               <strong id="stopApiState">Controleren…</strong>
             </div>
             <div class="connection-row">
+              <span>NMBS live via iRail</span>
+              <strong id="irailApiState">Klaar</strong>
+            </div>
+            <div class="connection-row">
               <span>Auto refresh</span>
               <strong id="refreshState">Actief</strong>
             </div>
@@ -417,7 +421,7 @@
 
           <div class="api-note">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></svg>
-            <p>OVFlow v3 toont geen demovertrekken wanneer de API mislukt. Je ziet dan bewust een foutmelding zodat nepdata nooit als live-data wordt voorgesteld.</p>
+            <p>OVFlow v7 toont geen demovertrekken wanneer de API mislukt. Je ziet dan bewust een foutmelding zodat nepdata nooit als live-data wordt voorgesteld.</p>
           </div>
         </section>
 
@@ -449,7 +453,7 @@
       </section>
 
       <footer class="footer">
-        <span>OVFlow v3</span>
+        <span>OVFlow v7</span>
         <span>bron: De Lijn</span>
         <span>Open Data</span>
       </footer>
@@ -483,7 +487,7 @@
     <div class="sheet-handle"></div>
     <div class="sheet-head">
       <div>
-        <span class="section-kicker">OVFlow v3</span>
+        <span class="section-kicker">OVFlow v7</span>
         <h2>Live halte instellen</h2>
       </div>
       <button class="icon-button" id="closeSettings" aria-label="Sluiten">

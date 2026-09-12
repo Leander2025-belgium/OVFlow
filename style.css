@@ -965,3 +965,22 @@ button,input,select{font:inherit}button{color:inherit;-webkit-tap-highlight-colo
     min-height:45px
   }
 }
+
+
+/* OVFlow v7 — alle haltes per rit + NMBS/iRail */
+.route-leg-buttons{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.route-stops-button{min-height:30px;border:1px solid rgba(120,186,255,.14);border-radius:10px;background:rgba(120,186,255,.06);color:#b9d9ff;padding:0 9px;display:inline-flex;align-items:center;gap:6px;font-size:8px;font-weight:900;cursor:pointer}
+.route-stops-button span{font-size:6px;letter-spacing:1px}.route-stops-button.active{background:rgba(120,186,255,.12);border-color:rgba(120,186,255,.24)}
+.nmbs-tag{flex:0 0 auto;padding:3px 5px;border-radius:999px;background:rgba(120,186,255,.10);color:#b8d9ff!important;font-size:6.5px!important;font-weight:950;letter-spacing:.05em}
+.ride-stops-panel{margin:0 0 8px;border:1px solid rgba(255,255,255,.06);border-radius:16px;background:rgba(3,14,22,.30);overflow:hidden}
+.ride-stops-head{min-height:47px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.05)}
+.ride-stops-head div span,.ride-stops-head div strong{display:block}.ride-stops-head div span{color:#708897;font-size:7px;text-transform:uppercase;letter-spacing:.07em;font-weight:850}.ride-stops-head div strong{margin-top:2px;font-size:10.5px}
+.nmbs-live-source{padding:5px 7px;border-radius:999px;border:1px solid rgba(120,186,255,.12);background:rgba(120,186,255,.055);color:#a9cefa;font-size:6.5px;font-weight:900;letter-spacing:.05em}
+.ride-stops-list{padding:4px 10px}.ride-stop-row{min-height:52px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:8px;position:relative}
+.ride-stop-rail{width:28px;height:52px;position:relative;display:grid;place-items:center}.ride-stop-rail:before,.ride-stop-rail:after{content:"";position:absolute;left:50%;width:2px;transform:translateX(-50%);background:rgba(120,186,255,.13)}.ride-stop-rail:before{top:0;height:22px}.ride-stop-rail:after{bottom:0;height:22px}.ride-stop-row:first-child .ride-stop-rail:before{display:none}.ride-stop-row:last-child .ride-stop-rail:after{display:none}
+.ride-stop-rail i{position:relative;z-index:2;width:9px;height:9px;border-radius:50%;background:#78baff;border:2px solid #112b3a}.ride-stop-row.start .ride-stop-rail i{background:#63efb1}.ride-stop-row.end .ride-stop-rail i{border-radius:3px;transform:rotate(45deg);background:#ffd56a}
+.ride-stop-copy{min-width:0}.ride-stop-copy strong,.ride-stop-copy span{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.ride-stop-copy strong{font-size:9.5px}.ride-stop-copy span{margin-top:2px;color:#6f8795;font-size:7.5px}
+.ride-stop-row time{color:#9fb1bc;font-size:9.5px;font-weight:850;text-align:right}.ride-stop-row time small{display:block;color:#657c8a;text-decoration:line-through;font-size:7px;margin-top:2px}.ride-stop-row.irail.passed{opacity:.48}.ride-stop-row.irail.canceled .ride-stop-copy strong,.ride-stop-row.irail.canceled time{color:#ef9aaa;text-decoration:line-through}
+.ride-stops-loading{min-height:42px;border-top:1px solid rgba(255,255,255,.045);padding:9px 11px;display:flex;align-items:center;gap:8px;color:#728a98;font-size:7.5px}.mini-spinner{width:16px;height:16px;flex:0 0 16px;border-radius:50%;border:2px solid rgba(255,255,255,.08);border-top-color:#78baff;animation:spin .8s linear infinite}.ride-stops-fallback{width:18px;height:18px;flex:0 0 18px;border-radius:6px;display:grid;place-items:center;background:rgba(255,255,255,.045);color:#8ea3af;font-weight:900}
+.ride-stops-empty{min-height:60px;padding:11px;display:grid;place-items:center;text-align:center}.ride-stops-empty strong,.ride-stops-empty span{display:block}.ride-stops-empty strong{font-size:9px}.ride-stops-empty span{margin-top:3px;color:#718895;font-size:7.5px}
+@media(max-width:520px){.ride-stop-row{grid-template-columns:25px minmax(0,1fr) 48px}.ride-stops-head{align-items:flex-start}.nmbs-live-source{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}

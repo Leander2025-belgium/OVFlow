@@ -1,47 +1,18 @@
-OVFlow v6 — LIVE TRIP
+OVFlow v7 — NMBS / iRail + ALLE HALTES PER RIT
 
-Nieuw:
-- Start Live Trip rechtstreeks op een bus/tram/trein-leg uit de routeplanner.
-- GPS volgt jouw positie terwijl je in het voertuig zit.
-- OVFlow toont continu de volgende halte.
-- Nog aantal haltes tot uitstappen.
-- Verwachte tijd bij de volgende halte.
-- Verwachte aankomst bij jouw uitstaphalte.
-- GPS-afstand tot de volgende halte.
-- Snelheid en GPS-nauwkeurigheid.
-- Voortgangsbalk over de volledige rit.
-- Lijst van komende haltes.
-- Uitstapwaarschuwingen:
-  * Volgende halte: uitstappen
-  * Maak je klaar om uit te stappen
-  * Nu uitstappen
-- Trilling waar de browser dit ondersteunt.
-- Live Trip op de bestaande kaart:
-  * route van het voertuig
-  * jouw actuele GPS-positie
-  * volgende halte
-  * kaart kan je positie automatisch volgen
-- Als GPS tijdelijk niet werkt, valt Live Trip terug op de tijden van de tussenhaltes.
-- Indien een tripId beschikbaar is, vernieuwt OVFlow de ritinformatie om de 60 seconden.
-- Optioneel Screen Wake Lock zodat het scherm tijdens Live Trip wakker kan blijven.
+NIEUW
+- Bij iedere bus, tram, metro of trein staat nu "Alle haltes".
+- Je ziet instaphalte, alle tussenhaltes, uitstaphalte en tijden.
+- Live Trip uit v6 blijft bestaan.
+- Treinritten krijgen een NMBS-badge.
+- Voor treinritten probeert OVFlow iRail te gebruiken als realtime NMBS-laag.
+- Als een iRail-voertuig wordt herkend, zie je live stations, vertraging, spoor en afgelaste stops.
+- Als iRail een specifieke trein niet kan herkennen, blijft de volledige haltevolgorde uit Transitous/MOTIS zichtbaar.
 
 BELANGRIJK
-Deze browserversie volgt jouw telefoon. Omdat je telefoon in de bus/tram/trein zit,
-is jouw GPS-positie in de praktijk de positie waarmee OVFlow jouw voortgang op de rit bepaalt.
+NMBS publiceert zijn officiële publieke data als GTFS/NeTEx; dat is geen klassieke API.
+OVFlow gebruikt iRail als API-laag voor realtime treinritten.
 
-iPhone/Safari kan locatie-updates vertragen wanneer de app niet zichtbaar is of het scherm
-wordt vergrendeld. Live Trip werkt daarom het betrouwbaarst terwijl OVFlow open staat.
-
-Gebruik:
-1. Plan een route.
-2. Klap een reisadvies open.
-3. Tik bij de bus/tram/trein op 'Live Trip'.
-4. Geef locatie-toegang.
-5. OVFlow toont automatisch de volgende halte.
-6. Tik 'Volg op kaart' voor de live kaartweergave.
-
-Start lokaal:
-  python -m http.server 8080
-
-Open:
-  http://localhost:8080
+START
+python -m http.server 8080
+Open http://localhost:8080

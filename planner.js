@@ -10,6 +10,7 @@
   }
 
   const API = "https://api.transitous.org/api/v6/plan";
+  const IRAIL_API = "https://api.irail.be";
 
   const planner = {
     from: null,
@@ -489,6 +490,21 @@
       leg.trips?.[0]?.id ||
       "";
 
+    const tripShortName =
+      leg.tripShortName ||
+      leg.trip?.tripShortName ||
+      leg.trip?.shortName ||
+      leg.trips?.[0]?.tripShortName ||
+      leg.trips?.[0]?.shortName ||
+      "";
+
+    const vehicleCandidate =
+      leg.vehicle ||
+      leg.vehicleId ||
+      leg.vehicleName ||
+      leg.trip?.vehicle ||
+      "";
+
     return {
       type: mode === "WALK" ? "walk" : "transit",
       mode,
@@ -499,6 +515,8 @@
       line: String(line || ""),
       headsign: String(headsign || ""),
       tripId: String(tripId || ""),
+      tripShortName: String(tripShortName || ""),
+      vehicleCandidate: String(vehicleCandidate || ""),
       start,
       end,
       duration: Number(leg.duration || 0),
@@ -584,16 +602,308 @@
     return `${(meters / 1000).toFixed(1).replace(".", ",")} km`;
   }
 
+
+  function isRailMode(mode) {
+    const m = String(mode || "").toUpperCase();
+    return m === "RAIL" ||
+      m === "SUBURBAN" ||
+      m.includes("RAIL") ||
+      m === "REGIONAL_FAST_RAIL" ||
+      m === "LONG_DISTANCE" ||
+      m === "HIGHSPEED_RAIL";
+  }
+
+  function allStopsForLeg(leg) {
+    const items = [
+      leg.fromPlace,
+      ...(Array.isArray(leg.intermediateStops) ? leg.intermediateStops : []),
+      leg.toPlace
+    ].filter(Boolean);
+
+    const out = [];
+    for (const stop of items) {
+      const name = stop.name || "";
+      if (!name) continue;
+
+      const previous = out.at(-1);
+      const same = previous && (
+        (previous.stopId && stop.stopId && previous.stopId === stop.stopId) ||
+        (
+          previous.name === name &&
+          Number.isFinite(Number(previous.lat)) &&
+          Number.isFinite(Number(previous.lon)) &&
+          Number.isFinite(Number(stop.lat)) &&
+          Number.isFinite(Number(stop.lon)) &&
+          haversine(previous.lon, previous.lat, stop.lon, stop.lat) < 0.02
+        )
+      );
+
+      if (same) {
+        out[out.length - 1] = {
+          ...previous,
+          ...stop,
+          arrival: stop.arrival ?? previous.arrival,
+          departure: stop.departure ?? previous.departure,
+          scheduledArrival: stop.scheduledArrival ?? previous.scheduledArrival,
+          scheduledDeparture: stop.scheduledDeparture ?? previous.scheduledDeparture
+        };
+      } else {
+        out.push({ ...stop });
+      }
+    }
+    return out;
+  }
+
+  function stopTimeText(stop) {
+    return timeText(
+      stop?.arrival ??
+      stop?.departure ??
+      stop?.scheduledArrival ??
+      stop?.scheduledDeparture
+    );
+  }
+
+  function plannedStopsHTML(leg) {
+    const stops = allStopsForLeg(leg);
+    if (!stops.length) {
+      return `
+        <div class="ride-stops-empty">
+          <strong>Geen haltevolgorde beschikbaar</strong>
+          <span>De route-engine gaf voor deze rit geen tussenhaltes terug.</span>
+        </div>`;
+    }
+
+    return stops.map((stop, index) => {
+      const first = index === 0;
+      const last = index === stops.length - 1;
+      const label = first ? "Instappen" : last ? "Uitstappen" : "Tussenhalte";
+      return `
+        <div class="ride-stop-row ${first ? "start" : ""} ${last ? "end" : ""}">
+          <div class="ride-stop-rail"><i></i></div>
+          <div class="ride-stop-copy">
+            <strong>${esc(stop.name)}</strong>
+            <span>${label}${stop.track ? ` · spoor/perron ${esc(stop.track)}` : ""}</span>
+          </div>
+          <time>${stopTimeText(stop)}</time>
+        </div>`;
+    }).join("");
+  }
+
+  function irailVehicleCandidates(leg) {
+    const values = [
+      leg.vehicleCandidate,
+      leg.tripShortName,
+      leg.tripId
+    ].filter(Boolean).map(v => String(v).trim());
+
+    const out = [];
+    const push = value => {
+      if (value && !out.includes(value)) out.push(value);
+    };
+
+    for (const raw of values) {
+      if (/^BE\.NMBS\./i.test(raw)) {
+        push(raw);
+        continue;
+      }
+
+      const clean = raw
+        .replace(/^urn:.*?:/i, "")
+        .replace(/^vehicle:/i, "")
+        .replace(/\s+/g, "");
+
+      const direct = clean.match(/((?:IC|L|S\d*|P|EXP|EUR|THA|TGV|ICE)\d{1,6})/i);
+      if (direct) push(`BE.NMBS.${direct[1].toUpperCase()}`);
+
+      if (/^\d{2,6}$/.test(clean) && leg.line) {
+        const line = String(leg.line).replace(/\s+/g, "").toUpperCase();
+        if (/^(IC|L|P|S\d*|EXP|EUR|THA|TGV|ICE)$/.test(line)) {
+          push(`BE.NMBS.${line}${clean}`);
+        }
+      }
+
+      if (/^(IC|L|P|S\d*|EXP|EUR|THA|TGV|ICE)\d{1,6}$/i.test(clean)) {
+        push(`BE.NMBS.${clean.toUpperCase()}`);
+      }
+    }
+
+    return out;
+  }
+
+  function yymmddForIRail(value) {
+    const d = asDate(value) || new Date();
+    const pad = n => String(n).padStart(2, "0");
+    return `${pad(d.getDate())}${pad(d.getMonth() + 1)}${String(d.getFullYear()).slice(-2)}`;
+  }
+
+  async function fetchIRailVehicle(leg) {
+    if (!isRailMode(leg.mode)) throw new Error("Dit is geen treinrit.");
+
+    const candidates = irailVehicleCandidates(leg);
+    if (!candidates.length) throw new Error("Geen NMBS-treinnummer beschikbaar voor deze rit.");
+
+    let lastError = null;
+    for (const id of candidates) {
+      try {
+        const url = new URL(`${IRAIL_API}/vehicle/`);
+        url.searchParams.set("id", id);
+        url.searchParams.set("date", yymmddForIRail(leg.start));
+        url.searchParams.set("format", "json");
+        url.searchParams.set("lang", "nl");
+        url.searchParams.set("alerts", "true");
+
+        const response = await fetch(url.toString(), {
+          headers: { "Accept": "application/json" },
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          lastError = new Error(`iRail HTTP ${response.status}`);
+          continue;
+        }
+
+        const data = await response.json();
+        const rawStops = Array.isArray(data?.stops)
+          ? data.stops
+          : Array.isArray(data?.stops?.stop)
+            ? data.stops.stop
+            : [];
+
+        if (rawStops.length) return { data, vehicleId: id };
+        lastError = new Error("Geen haltes gevonden voor deze trein.");
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error("NMBS-rit kon niet worden geladen.");
+  }
+
+  function normalizeIRailStops(data) {
+    const raw = Array.isArray(data?.stops)
+      ? data.stops
+      : Array.isArray(data?.stops?.stop)
+        ? data.stops.stop
+        : [];
+
+    return raw.map(stop => {
+      const station =
+        stop.stationinfo?.standardname ||
+        stop.stationinfo?.name ||
+        stop.station ||
+        "Station";
+
+      const scheduled = stop.time ? asDate(Number(stop.time)) : null;
+      const delaySeconds = Number(stop.delay || 0);
+      const liveTime = scheduled ? new Date(scheduled.getTime() + delaySeconds * 1000) : null;
+
+      return {
+        name: station,
+        scheduled,
+        liveTime,
+        delaySeconds,
+        platform: stop.platform || "",
+        canceled: String(stop.canceled || "0") === "1",
+        left: String(stop.left || "0") === "1"
+      };
+    });
+  }
+
+  function irailStopsHTML(stops) {
+    return stops.map(stop => {
+      const delayMin = Math.round(stop.delaySeconds / 60);
+      const status = stop.canceled
+        ? "Afgelast"
+        : delayMin > 0
+          ? `+${delayMin} min`
+          : "Op tijd";
+
+      return `
+        <div class="ride-stop-row irail ${stop.canceled ? "canceled" : ""} ${stop.left ? "passed" : ""}">
+          <div class="ride-stop-rail"><i></i></div>
+          <div class="ride-stop-copy">
+            <strong>${esc(stop.name)}</strong>
+            <span>${stop.platform ? `spoor ${esc(stop.platform)} · ` : ""}${status}</span>
+          </div>
+          <time>
+            ${stop.liveTime ? timeText(stop.liveTime) : "--:--"}
+            ${delayMin > 0 && stop.scheduled ? `<small>${timeText(stop.scheduled)}</small>` : ""}
+          </time>
+        </div>`;
+    }).join("");
+  }
+
+  async function loadRideStops(routeIndex, legIndex) {
+    const itinerary = planner.itineraries[routeIndex];
+    const leg = itinerary?.legs?.[legIndex];
+    const panel = document.querySelector(`[data-stops-panel="${routeIndex}-${legIndex}"]`);
+    const button = document.querySelector(`[data-stops-route="${routeIndex}"][data-stops-leg="${legIndex}"]`);
+    if (!leg || !panel || !button) return;
+
+    const opening = panel.classList.contains("hidden");
+    panel.classList.toggle("hidden", !opening);
+    button.classList.toggle("active", opening);
+    if (!opening) return;
+
+    const plannedCount = allStopsForLeg(leg).length;
+    panel.innerHTML = `
+      <div class="ride-stops-head">
+        <div>
+          <span>${isRailMode(leg.mode) ? "Treinrit" : `${modeLabel(leg.mode)}rit`}</span>
+          <strong>${plannedCount} haltes</strong>
+        </div>
+        ${isRailMode(leg.mode) ? '<span class="nmbs-live-source">NMBS LIVE VIA iRAIL</span>' : ""}
+      </div>
+      <div class="ride-stops-list">${plannedStopsHTML(leg)}</div>
+      ${isRailMode(leg.mode) ? `
+        <div class="ride-stops-loading">
+          <span class="mini-spinner"></span>
+          NMBS realtime haltes controleren…
+        </div>` : ""}
+    `;
+
+    if (!isRailMode(leg.mode)) return;
+
+    try {
+      const result = await fetchIRailVehicle(leg);
+      const liveStops = normalizeIRailStops(result.data);
+      if (!liveStops.length) throw new Error("Geen NMBS-haltes teruggekregen.");
+
+      const source = panel.querySelector(".nmbs-live-source");
+      if (source) source.textContent = `iRail · ${result.vehicleId.replace("BE.NMBS.", "")}`;
+
+      const list = panel.querySelector(".ride-stops-list");
+      if (list) list.innerHTML = irailStopsHTML(liveStops);
+      panel.querySelector(".ride-stops-loading")?.remove();
+
+      const stateEl = document.querySelector("#irailApiState");
+      if (stateEl) {
+        stateEl.textContent = "Live";
+        stateEl.className = "state-ok";
+      }
+    } catch (error) {
+      console.debug("iRail vehicle fallback:", error);
+      const loading = panel.querySelector(".ride-stops-loading");
+      if (loading) {
+        loading.innerHTML = `
+          <span class="ride-stops-fallback">i</span>
+          NMBS live-detail niet beschikbaar voor deze trein; de volledige haltevolgorde hierboven blijft zichtbaar.
+        `;
+      }
+    }
+  }
+
   function legHTML(leg, legIndex, routeIndex) {
     const transit = leg.type === "transit";
     const lineText = transit
       ? [modeLabel(leg.mode), leg.line].filter(Boolean).join(" ")
       : `Lopen${leg.distance ? ` · ${distanceLabel(leg.distance)}` : ""}`;
 
+    const stopsCount = transit ? allStopsForLeg(leg).length : 0;
     const detail = transit
       ? [
           leg.headsign ? `richting ${leg.headsign}` : "",
-          leg.intermediateStops.length ? `${leg.intermediateStops.length + 1} haltes` : "",
+          stopsCount ? `${Math.max(0, stopsCount - 1)} haltes` : "",
           leg.realtime ? "realtime" : ""
         ].filter(Boolean).join(" · ")
       : `${leg.from} → ${leg.to}`;
@@ -605,21 +915,27 @@
           <div class="route-leg-title">
             <strong>${esc(lineText)}</strong>
             ${leg.realtime ? '<span class="realtime-tag">LIVE</span>' : ""}
+            ${transit && isRailMode(leg.mode) ? '<span class="nmbs-tag">NMBS</span>' : ""}
           </div>
           <span>${esc(detail)}</span>
           <small>${esc(leg.from)} → ${esc(leg.to)}</small>
           ${transit ? `
-            <button type="button" class="route-live-trip-button" data-live-route="${routeIndex}" data-live-leg="${legIndex}">
-              <span class="live-trip-play">▶</span>
-              Live Trip
-            </button>` : ""}
+            <div class="route-leg-buttons">
+              <button type="button" class="route-stops-button" data-stops-route="${routeIndex}" data-stops-leg="${legIndex}">
+                <span>●●●</span> Alle haltes
+              </button>
+              <button type="button" class="route-live-trip-button" data-live-route="${routeIndex}" data-live-leg="${legIndex}">
+                <span class="live-trip-play">▶</span> Live Trip
+              </button>
+            </div>` : ""}
         </div>
         <div class="route-leg-time">
           <strong>${timeText(leg.start)}</strong>
           <span>${durationLabel(leg.duration)}</span>
           <small>${timeText(leg.end)}</small>
         </div>
-      </div>`;
+      </div>
+      ${transit ? `<div class="ride-stops-panel hidden" data-stops-panel="${routeIndex}-${legIndex}"></div>` : ""}`;
   }
 
   function renderResults(items) {
@@ -706,6 +1022,12 @@
     [...cards.querySelectorAll("[data-live-route][data-live-leg]")].forEach(button => {
       button.addEventListener("click", () => {
         startLiveTrip(Number(button.dataset.liveRoute), Number(button.dataset.liveLeg));
+      });
+    });
+
+    [...cards.querySelectorAll("[data-stops-route][data-stops-leg]")].forEach(button => {
+      button.addEventListener("click", () => {
+        loadRideStops(Number(button.dataset.stopsRoute), Number(button.dataset.stopsLeg));
       });
     });
 
