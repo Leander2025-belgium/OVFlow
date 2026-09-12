@@ -973,21 +973,6 @@
       .sort((a, b) => a.effectiveDate - b.effectiveDate);
   }
 
-  window.addEventListener("offline", () => {
-    setApiState("error", "Offline");
-    toast("Geen internetverbinding");
-  });
-  window.addEventListener("online", () => {
-    toast("Verbinding hersteld");
-    if (state.stop?.stop) fetchLive();
-  });
-
-  if ("serviceWorker" in navigator && location.protocol !== "file:") {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./sw.js").catch(error => console.debug("Service worker:", error));
-    });
-  }
-
   window.OVFlowBridge = {
     ensureStopsLoaded,
     searchStops,

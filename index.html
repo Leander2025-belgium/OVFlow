@@ -6,11 +6,9 @@
   <meta name="theme-color" content="#06121b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow 2.1 — Live bus, tram & trein</title>
-  <meta name="description" content="OVFlow — plan en volg bus, tram en trein live in België." />
-  <link rel="manifest" href="manifest.webmanifest" />
+  <title>OVFlow 2.0 v10.1 — Premium Live Trip</title>
   <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=10.1" />
 </head>
 <body>
   <div class="ambient a"></div>
@@ -26,7 +24,7 @@
         </span>
         <span class="brand-copy">
           <strong>OVFlow</strong>
-          <small>2.1</small>
+          <small>2.0</small>
         </span>
       </a>
 
@@ -47,9 +45,9 @@
         <div class="hero-glow"></div>
 
         <div class="hero-copy">
-          <span class="kicker"><i></i> LIVE · HEEL BELGIË</span>
-          <h1>Reis slimmer.<br><span>Volg live.</span></h1>
-          <p>Plan en volg bus, tram en trein met realtime informatie in één rustige, snelle app.</p>
+          <span class="kicker"><i></i> LIVE DE LIJN</span>
+          <h1>Vertrek slimmer.<br><span>Reis live.</span></h1>
+          <p>Realtime vertrektijden rechtstreeks uit de open data van De Lijn.</p>
         </div>
 
         <div class="search-card">
@@ -59,7 +57,7 @@
               <input id="stopSearchInput" type="search" autocomplete="off" placeholder="Zoek halte, plaats of straat…" />
               <button id="clearSearchButton" type="button" aria-label="Wis zoekopdracht">×</button>
             </div>
-            <div class="stop-search-status" id="stopSearchStatus" aria-live="polite">Zoek in echte De Lijn-haltes</div>
+            <div class="stop-search-status" id="stopSearchStatus">Zoek in echte De Lijn-haltes</div>
             <div class="stop-results hidden" id="stopResults"></div>
           </div>
 
@@ -103,10 +101,10 @@
         <div class="quick-live-head">
           <div>
             <span class="section-kicker">Live ritmodus</span>
-            <h2>Start meteen een Live Trip</h2>
-            <p>Zoek een bus of tram rond je locatie. Voor treinritten start je Live Trip rechtstreeks vanuit de routeplanner.</p>
+            <h2>Volg je bus of tram zonder server</h2>
+            <p>Zoek een lijn rond je huidige locatie. OVFlow gebruikt rechtstreeks De Lijn-livegegevens en start daarna Live Trip.</p>
           </div>
-          <span class="browser-only-chip"><i></i> REALTIME</span>
+          <span class="browser-only-chip"><i></i> BROWSER-ONLY</span>
         </div>
 
         <div class="quick-live-search">
@@ -121,9 +119,9 @@
           </button>
         </div>
 
-        <div class="quick-live-status" id="quickLiveStatus" aria-live="polite">
+        <div class="quick-live-status" id="quickLiveStatus">
           <span class="quick-live-status-dot"></span>
-          <span>Rechtstreeks verbonden met openbare OV-databronnen.</span>
+          <span>Geen eigen server nodig.</span>
         </div>
 
         <div class="quick-live-loading hidden" id="quickLiveLoading">
@@ -137,7 +135,7 @@
         <div class="quick-live-error hidden" id="quickLiveError">
           <span>!</span>
           <div>
-            <strong>Live rit kon niet worden gezocht</strong>
+            <strong id="quickLiveErrorTitle">Live rit kon niet worden gezocht</strong>
             <small id="quickLiveErrorText"></small>
           </div>
           <button type="button" id="quickLiveRetry">Opnieuw</button>
@@ -369,7 +367,7 @@
           <div class="live-trip-stop-list premium-timeline" id="liveTripStopList"></div>
         </div>
 
-        <div class="live-trip-realtime-card" id="liveTripRealtimeCard" aria-live="polite">
+        <div class="live-trip-realtime-card" id="liveTripRealtimeCard">
           <span class="live-trip-realtime-icon">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></svg>
           </span>
@@ -540,7 +538,7 @@
 
           <div class="api-note">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></svg>
-            <p>OVFlow 2.1 toont geen demovertrekken wanneer de API mislukt. Je ziet dan bewust een foutmelding zodat nepdata nooit als live-data wordt voorgesteld.</p>
+            <p>OVFlow v7 toont geen demovertrekken wanneer de API mislukt. Je ziet dan bewust een foutmelding zodat nepdata nooit als live-data wordt voorgesteld.</p>
           </div>
         </section>
 
@@ -566,15 +564,15 @@
           <div class="insight-card">
             <span>API-status</span>
             <strong id="insightApi">Verbinden…</strong>
-            <small>Rechtstreekse browserverbinding met De Lijn, Transitous en iRail.</small>
+            <small>Rechtstreekse browserverbinding zonder eigen server.</small>
           </div>
         </section>
       </section>
 
       <footer class="footer">
-        <span>OVFlow 2.1</span>
-        <span>De Lijn · NMBS/iRail</span>
-        <span>Transitous · Open Data</span>
+        <span>OVFlow v7</span>
+        <span>bron: De Lijn</span>
+        <span>Open Data</span>
       </footer>
     </main>
 
@@ -607,8 +605,8 @@
     <div class="sheet-handle"></div>
     <div class="sheet-head">
       <div>
-        <span class="section-kicker">OVFlow 2.1</span>
-        <h2>Voorkeurshalte instellen</h2>
+        <span class="section-kicker">OVFlow 2.0</span>
+        <h2>Live halte instellen</h2>
       </div>
       <button class="icon-button" id="closeSettings" aria-label="Sluiten">
         <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"></path></svg>
@@ -617,7 +615,7 @@
 
     <div class="sheet-info">
       <strong>De Lijn-haltecode</strong>
-      <p>Je voorkeurshalte en instellingen worden lokaal op dit toestel bewaard. Er is geen eigen OVFlow-server nodig.</p>
+      <p>De Core API gebruikt een <b>entiteitnummer</b> en <b>haltenummer</b>. OVFlow bewaart deze alleen lokaal in je browser.</p>
     </div>
 
     <label class="form-field">
@@ -649,18 +647,18 @@
 
     <button class="sheet-primary" id="saveSettings">Opslaan & live laden</button>
 
-    <div class="security-warning safe">
-      <span>✓</span>
-      <p><strong>Serverloze versie.</strong> OVFlow draait rechtstreeks in de browser. Voor locatie, PWA en live data moet je de app via <code>https://</code> openen, bijvoorbeeld op GitHub Pages. In een statische app zijn De Lijn API-sleutels technisch zichtbaar in de browser.</p>
+    <div class="security-warning">
+      <span>!</span>
+      <p><strong>Testversie zonder server.</strong> De API-sleutel is daardoor zichtbaar in de browserbestanden. Upload deze versie niet publiek zonder de sleutel eerst te vervangen.</p>
     </div>
   </aside>
 
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="toast" id="toast"></div>
 
   <script src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
-  <script src="config.js"></script>
-  <script src="app.js"></script>
-  <script src="planner.js"></script>
-  <script src="quick-live.js"></script>
+  <script src="config.js?v=10.1"></script>
+  <script src="app.js?v=10.1"></script>
+  <script src="planner.js?v=10.1"></script>
+  <script src="quick-live.js?v=10.1"></script>
 </body>
 </html>

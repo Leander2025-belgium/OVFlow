@@ -71,10 +71,14 @@
     if (detail) $("#quickLiveLoadingText").textContent = detail;
   }
 
-  function showError(message) {
+  function showError(message, options = {}) {
+    const title = options.title || "Live rit kon niet worden gezocht";
+    const status = options.status || "Zoeken mislukt";
+    const titleEl = $("#quickLiveErrorTitle");
+    if (titleEl) titleEl.textContent = title;
     $("#quickLiveErrorText").textContent = message;
     $("#quickLiveError").classList.remove("hidden");
-    setStatus("Zoeken mislukt", "error");
+    setStatus(status, "error");
   }
 
   function clearError() {
@@ -366,7 +370,10 @@
 
       toast(`Live rit lijn ${candidate.dep.line} gestart`);
     } catch (error) {
-      showError(error?.message || "Deze rit kon niet worden gestart.");
+      showError(error?.message || "Deze rit kon niet worden gestart.", {
+        title: "Live Trip kon niet worden gestart",
+        status: "Starten mislukt"
+      });
     } finally {
       setLoading(false);
     }
