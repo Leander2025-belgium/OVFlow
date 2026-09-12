@@ -1,46 +1,40 @@
-OVFlow 2.0 v10 — PREMIUM UNIVERSAL LIVE TRIP
+OVFlow 2.0 v10.2 — LIVE TRIP COUNT & ROUTE LOCK FIX
 
-Deze versie voert het universele Live Trip ontwerp uit voor bus, tram en trein.
+Deze hotfix lost de fout op waarbij een rit bijvoorbeeld:
+- Rit overzicht: 27 haltes
+maar daarna:
+- halte 31 van 109
+- nog 79 haltes
+kon tonen.
 
-Belangrijk:
-- Bestaande stabiele segment-gebaseerde GPS-voortgang uit v9 blijft behouden.
-- Geen terugkeer naar projectie op de volledige route.
-- Browser-only / GitHub Pages blijft behouden.
-- De Lijn, Transitous/MOTIS, iRail en MapLibre blijven behouden.
+OORZAAK
+De 60-seconden realtime refresh haalde /api/v6/trip op en verving daarna live.stops
+door de volledige stoplijst uit het nieuwe antwoord. Dat antwoord kan een langere
+voertuigrit, een andere segmentvariant of meerdere ritdelen bevatten.
 
-Nieuw design:
-- Ultra-premium donkere Liquid Glass Live Trip
-- Dynamische Bus / Tram / Trein termen
-- Volgende halte of Volgend station
-- Realtime badge: op tijd / vertraging / vroeger / neutraal als vergelijking ontbreekt
-- Relevante statuscards worden alleen getoond als echte data beschikbaar is
-- Trein toont spoor indien aanwezig
-- Voertuig/treinnummer alleen als de databron dit levert
-- Bezetting alleen als de databron dit levert
-- Rit overzicht toont de volledige halte-/stationtimeline
-- Timeline wordt NIET bij iedere GPS-update opnieuw opgebouwd; alleen statusclasses worden bijgewerkt
-- Realtime info kaart verzint nooit een oorzaak voor vertraging
-- Werkende Bewaar rit knop via localStorage
-- Werkende realtime refreshknop
-- Bottom navigation: Home / Vertrekken / Live / Data / Instellingen
-- Live-tab wordt actief tijdens een Live Trip
+FIX
+Zodra Live Trip start:
+- wordt de geselecteerde stoplijst vastgezet;
+- wordt de bestemming vastgezet;
+- worden lijn, tripId en richting vastgezet;
+- een refresh mag de stoplijst NOOIT meer vervangen;
+- een refresh mag alleen tijden/spoor/realtime velden van bestaande stops bijwerken;
+- een kandidaat-refresh moet overeenkomen met tripId/lijn/richting + huidige stop + bestemming;
+- bij twijfel wordt de refresh genegeerd;
+- routecorrectheid gaat voor dataversheid.
 
-Stabiliteit:
-- GPS watch wordt bij stoppen opgeruimd
-- timers worden opgeruimd
-- haltevolgorde schuift maximaal sequentieel vooruit
-- progressie kan niet door een route-lus plots naar een groot percentage springen
-- snelheid blijft gladgestreken
-- geen undefined/null/NaN placeholders voor optionele data
+ALLE TELLERS HEBBEN NU ÉÉN BRON
+- Rit overzicht · X haltes
+- halte X van Y
+- Nog haltes
+komen allemaal uit dezelfde locked live.stops lijst.
 
-GitHub Pages:
-Upload alle bestanden uit deze ZIP over je huidige OVFlow-bestanden.
-Daarna eventueel ?v=10 achter je GitHub Pages URL zetten om Safari-cache te omzeilen.
+EXTRA DEFENSIEVE BEVEILIGING
+Als andere code toch de stoplijstlengte zou wijzigen, herstelt renderLiveTrip
+automatisch de oorspronkelijke locked stoplijst.
 
+CACHE
+index.html laadt style.css/app.js/planner.js/quick-live.js/config.js nu met ?v=10.2
+zodat GitHub Pages + Safari niet de oude JavaScript-versie uit cache blijven gebruiken.
 
-OVFLOW 2.0 v10.1 HOTFIX
-- Fix: “Can’t find variable: live” when starting a Live Trip from nearby results.
-- The active Live Trip state now gets a stable local `live` reference before the UI is initialized.
-- Search errors and Live Trip start errors are now shown separately.
-- GitHub Pages/Safari cache busting added: style.css/app.js/planner.js/quick-live.js/config.js load with ?v=10.1.
-- Existing stable segment-based progress logic is unchanged.
+Browser-only / GitHub Pages blijft behouden.

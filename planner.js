@@ -1713,6 +1713,23 @@
     const live = planner.live;
     if (!live.active || !live.leg || live.stops.length < 2) return;
 
+    // Defensive recovery: the active stop list must never change length during one Live Trip.
+    if (
+      Number.isFinite(Number(live.lockedStopCount)) &&
+      live.lockedStopsSnapshot?.length === Number(live.lockedStopCount) &&
+      live.stops.length !== Number(live.lockedStopCount)
+    ) {
+      console.warn(
+        "OVFlow Live Trip: unexpected stop-count mutation repaired.",
+        live.stops.length,
+        "→",
+        live.lockedStopCount
+      );
+      live.stops = live.lockedStopsSnapshot.map(stop => ({ ...stop }));
+      live.nextIndex = Math.max(1, Math.min(live.stops.length - 1, live.nextIndex));
+      buildLiveTripTimeline(live);
+    }
+
     const stops = live.stops;
     const lastIndex = stops.length - 1;
     const position = live.position;
@@ -1753,10 +1770,8 @@
     $("#liveTripHeroExtra").classList.toggle("hidden", !platformText);
 
     $("#liveTripProgressPct").textContent = `${progressPct}%`;
-    $("#liveTripProgressStep").textContent =
-      `${vocab.stop} ${Math.min(lastIndex + 1, nextIndex + 1)} van ${lastIndex + 1}`;
     $("#liveTripProgressBar").style.width = `${progressValue.toFixed(2)}%`;
-    $("#liveTripStopsLeft").textContent = String(stopsLeft);
+    syncLiveTripCounts(live, nextIndex);
     $("#liveTripArrival").textContent = liveArrivalLabel(stops[lastIndex]);
 
     if (position) {
@@ -1806,10 +1821,122 @@
     });
   }
 
+
+  function normalizedStopName(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\b(perron|platform|spoor)\s*[a-z0-9-]+\b/gi, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  function sameLiveStop(a, b) {
+    if (!a || !b) return false;
+
+    const aId = String(a.stopId || "").trim();
+    const bId = String(b.stopId || "").trim();
+    if (aId && bId && aId === bId) return true;
+
+    const an = normalizedStopName(a.name);
+    const bn = normalizedStopName(b.name);
+    if (an && bn && an === bn) return true;
+
+    return false;
+  }
+
+  function findMatchingFreshStop(stableStop, freshStops) {
+    if (!stableStop || !Array.isArray(freshStops)) return null;
+
+    const exactId = stableStop.stopId
+      ? freshStops.find(stop =>
+          stop.stopId &&
+          String(stop.stopId) === String(stableStop.stopId)
+        )
+      : null;
+    if (exactId) return exactId;
+
+    const exactName = freshStops.find(stop => sameLiveStop(stableStop, stop));
+    if (exactName) return exactName;
+
+    return null;
+  }
+
+  function mergeFreshTimesIntoStableStops(stableStops, freshStops) {
+    if (!Array.isArray(stableStops) || !Array.isArray(freshStops)) return 0;
+
+    let matched = 0;
+
+    stableStops.forEach(stableStop => {
+      const fresh = findMatchingFreshStop(stableStop, freshStops);
+      if (!fresh) return;
+
+      matched += 1;
+
+      // Only realtime/timetable fields may change.
+      // Identity, order and coordinates stay locked to the original selected segment.
+      stableStop.arrival = fresh.arrival ?? stableStop.arrival;
+      stableStop.departure = fresh.departure ?? stableStop.departure;
+      stableStop.scheduledArrival =
+        fresh.scheduledArrival ?? stableStop.scheduledArrival;
+      stableStop.scheduledDeparture =
+        fresh.scheduledDeparture ?? stableStop.scheduledDeparture;
+      stableStop.track = fresh.track || stableStop.track || "";
+    });
+
+    return matched;
+  }
+
+  function liveTripRefreshCandidateIsSafe(live, updated, freshStops) {
+    if (!live?.leg || !updated || !Array.isArray(freshStops)) return false;
+
+    const oldLine = String(live.leg.line || "").trim().toLowerCase();
+    const newLine = String(updated.line || "").trim().toLowerCase();
+    if (oldLine && newLine && oldLine !== newLine) return false;
+
+    const oldTrip = String(live.leg.tripId || "").trim();
+    const newTrip = String(updated.tripId || "").trim();
+    if (oldTrip && newTrip && oldTrip !== newTrip) return false;
+
+    const oldHead = normalizedStopName(live.leg.headsign);
+    const newHead = normalizedStopName(updated.headsign);
+    if (oldHead && newHead && oldHead !== newHead) return false;
+
+    // The refresh must still contain the stop we are heading to AND our locked destination.
+    const currentNext = live.stops?.[live.nextIndex];
+    const lockedDestination = live.stops?.at(-1);
+
+    if (currentNext && !findMatchingFreshStop(currentNext, freshStops)) return false;
+    if (lockedDestination && !findMatchingFreshStop(lockedDestination, freshStops)) return false;
+
+    return true;
+  }
+
+  function syncLiveTripCounts(live, nextIndex) {
+    if (!live?.stops?.length) return;
+
+    const vocab = liveVocabulary(live.leg);
+    const totalStops = live.stops.length;
+    const safeNextIndex = Math.max(1, Math.min(totalStops - 1, Number(nextIndex || 1)));
+    const remainingStops = Math.max(1, totalStops - safeNextIndex);
+
+    $("#liveTripOverviewTitle").textContent =
+      `${vocab.vehicle}rit · ${totalStops} ${vocab.stops} totaal`;
+
+    $("#liveTripProgressStep").textContent =
+      `${vocab.stop} ${Math.min(totalStops, safeNextIndex + 1)} van ${totalStops}`;
+
+    $("#liveTripStopsLeft").textContent = String(remainingStops);
+  }
+
   async function refreshLiveTripData() {
     const live = planner.live;
     if (!live.active || !live.leg?.tripId) return;
 
+    // IMPORTANT:
+    // live.stops is the LOCKED segment the user selected when Live Trip started.
+    // A realtime refresh is NEVER allowed to replace this array or alter its length/order.
     try {
       const url = new URL("https://api.transitous.org/api/v6/trip");
       url.searchParams.set("tripId", live.leg.tripId);
@@ -1820,36 +1947,106 @@
       });
 
       if (!response.ok) return;
+
       const data = await response.json();
       const itinerary = normalizeItinerary(data);
-      const transitLegs = itinerary.legs.filter(l => l.type === "transit");
+      const transitLegs = itinerary.legs.filter(leg => leg.type === "transit");
+      if (!transitLegs.length) return;
 
-      let updated =
-        transitLegs.find(l => l.tripId && l.tripId === live.leg.tripId) ||
-        transitLegs.find(l => l.line === live.leg.line && l.headsign === live.leg.headsign) ||
-        transitLegs[0];
+      const lockedTripId = String(live.leg.tripId || "");
+      const lockedLine = String(live.leg.line || "");
+      const lockedHeadsign = normalizedStopName(live.leg.headsign);
 
-      if (!updated) return;
+      // Prefer a strict tripId match. Never blindly fall back to transitLegs[0].
+      const candidates = transitLegs
+        .map(updated => {
+          const freshStops = buildLiveStops(updated);
+          let score = 0;
 
-      const oldNextName = live.stops[live.nextIndex]?.name;
-      live.leg = updated;
-      live.stops = buildLiveStops(updated);
-      const prepared = prepareLiveStopProgress(updated, live.stops);
-      live.metrics = prepared.metrics;
+          if (
+            lockedTripId &&
+            updated.tripId &&
+            String(updated.tripId) === lockedTripId
+          ) score += 100;
 
-      if (oldNextName) {
-        const idx = live.stops.findIndex(s => s.name === oldNextName);
-        if (idx >= 1) live.nextIndex = idx;
+          if (
+            lockedLine &&
+            updated.line &&
+            String(updated.line).toLowerCase() === lockedLine.toLowerCase()
+          ) score += 25;
+
+          const freshHead = normalizedStopName(updated.headsign);
+          if (lockedHeadsign && freshHead && freshHead === lockedHeadsign) score += 25;
+
+          const lockedDestination = live.stops.at(-1);
+          if (lockedDestination && findMatchingFreshStop(lockedDestination, freshStops)) {
+            score += 40;
+          }
+
+          const currentNext = live.stops[live.nextIndex];
+          if (currentNext && findMatchingFreshStop(currentNext, freshStops)) {
+            score += 30;
+          }
+
+          return { updated, freshStops, score };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      const best = candidates[0];
+
+      // Require strong confidence. If uncertain, keep the last known correct segment untouched.
+      if (
+        !best ||
+        best.score < 70 ||
+        !liveTripRefreshCandidateIsSafe(live, best.updated, best.freshStops)
+      ) {
+        console.debug(
+          "OVFlow Live Trip: realtime refresh ignored because trip identity was not safe.",
+          best?.score
+        );
+        return;
       }
 
-      resetCurrentStopTracker(live);
+      const matched = mergeFreshTimesIntoStableStops(live.stops, best.freshStops);
+
+      // If too few stops could be matched, the API probably returned another trip variant.
+      const minimumUsefulMatches = Math.min(
+        live.stops.length,
+        Math.max(2, Math.ceil(live.stops.length * 0.35))
+      );
+
+      if (matched < minimumUsefulMatches) {
+        console.debug(
+          "OVFlow Live Trip: realtime refresh ignored because too few locked stops matched.",
+          matched,
+          minimumUsefulMatches
+        );
+        return;
+      }
+
+      // Merge only safe live metadata. Keep original route boundaries and stop sequence.
+      live.leg = {
+        ...live.leg,
+        realtime: best.updated.realtime ?? live.leg.realtime,
+        occupancy: best.updated.occupancy ?? live.leg.occupancy,
+        vehicleCandidate:
+          best.updated.vehicleCandidate || live.leg.vehicleCandidate,
+        tripShortName:
+          best.updated.tripShortName || live.leg.tripShortName
+      };
+
+      live.lastSuccessfulRefreshAt = Date.now();
+
+      // Refresh visible times, but the same locked number/order of stops remains.
       buildLiveTripTimeline(live);
+      syncLiveTripCounts(live, live.nextIndex);
       renderLiveTrip();
     } catch (error) {
-      // Live Trip keeps working with the last known timetable + GPS.
+      // Correctness beats freshness: keep the last known segment if refresh fails.
       console.debug("OVFlow Live Trip refresh:", error);
     }
   }
+
 
   async function requestWakeLock() {
     const live = planner.live;
@@ -1945,12 +2142,20 @@
       justAdvancedAt: 0,
       progressTarget: 0,
       displayedProgress: 0,
-      smoothedSpeedKmh: NaN
+      smoothedSpeedKmh: NaN,
+      lockedStopCount: stops.length,
+      lockedDestinationName: stops.at(-1)?.name || leg.to || "",
+      lockedTripId: String(leg.tripId || ""),
+      lockedLine: String(leg.line || ""),
+      lockedHeadsign: String(leg.headsign || ""),
+      startedAt: Date.now(),
+      lastSuccessfulRefreshAt: 0
     };
 
     // Stable local reference for the active Live Trip state.
     // Prevents scope errors when the UI is initialized immediately after planner.live is replaced.
     const live = planner.live;
+    live.lockedStopsSnapshot = live.stops.map(stop => ({ ...stop }));
 
     const vocab = liveVocabulary(leg);
     $("#liveTripSession").classList.remove("hidden");
@@ -1960,7 +2165,7 @@
     $("#liveTripDirection").textContent = leg.headsign ? `Richting ${leg.headsign}` : `${leg.from} → ${leg.to}`;
     $("#liveTripFromLabel").textContent = leg.from;
     $("#liveTripToLabel").textContent = leg.to;
-    $("#liveTripOverviewTitle").textContent = `${vocab.vehicle}rit · ${live.stops.length} ${vocab.stops}`;
+    syncLiveTripCounts(live, live.nextIndex);
     $("#liveTripMapButton").classList.remove("active");
     $("#liveTripSaveButton")?.classList.remove("saved");
     if ($("#liveTripSaveButton strong")) $("#liveTripSaveButton strong").textContent = "Bewaar rit";
