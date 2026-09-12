@@ -1,10 +1,11 @@
 {
-  "name": "OVFlow 2.0",
+  "name": "OVFlow 2.1",
   "short_name": "OVFlow",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#06101d",
-  "theme_color": "#07101f",
-  "description": "Trein, bus en tram in één Belgische OV-app.",
-  "scope": "./"
+  "orientation": "portrait-primary",
+  "background_color": "#061019",
+  "theme_color": "#06131d",
+  "description": "Plan en volg bus, tram en trein live in België."
 }

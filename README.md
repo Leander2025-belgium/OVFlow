@@ -1,35 +1,23 @@
-# OVFlow 2.0
+# OVFlow 2.1 — statische/serverloze versie
 
-Een volledige UI/herstructurering van OVFlow met focus op vier echte taken: Vandaag, Plannen, Live rit en Bewaard.
+Deze versie heeft **geen Node.js-, Express- of eigen API-server nodig**. Upload de bestanden in deze map rechtstreeks naar een statische host zoals GitHub Pages, Cloudflare Pages of Netlify.
 
-## Wat is nieuw
-- Nieuwe mobiele OV-interface met vaste navigatie en veel minder losse schermen.
-- Haltes in de buurt via telefoonlocatie + echte De Lijn doorkomsten.
-- Echte NMBS routeplanning via iRail; geen fictieve routefallbacks.
-- Rechtstreekse De Lijn-routezoeker tussen twee haltes op basis van lijn/haltevolgorde en live vertrek.
-- Live ritmodus voor bus/tram: telefoon-GPS wordt gekoppeld aan de haltevolgorde zodat OVFlow ongeveer kan bepalen waar je bent en welke halte volgt.
-- Treinritten kunnen vanuit een route naar Live rit worden gestuurd via iRail vehicle data.
-- Leaflet/OpenStreetMap kaart zonder betaalde kaart-API.
-- Favoriete haltes en recente reizen in localStorage.
-- De drie De Lijn API-producten kunnen afzonderlijke keys gebruiken.
+## Wat werkt rechtstreeks in de browser
+- De Lijn haltezoeker via Digitaal Vlaanderen WFS
+- De Lijn realtime doorkomsten via de Core Open Data API
+- Routeplanning voor bus, tram en trein via Transitous
+- NMBS-stations en trein-livegegevens via iRail
+- Live Trip met GPS, vertraging, volgende haltes/stations en spoorinformatie waar de bron die levert
+- Kaart, favorieten/voorkeurshalte en PWA-cache
+- Geen backend, database of `npm install` nodig
 
 ## Installeren
-```bash
-npm install
-cp .env.example .env
-nano .env
-npm start
-```
+1. Upload `index.html`, `style.css`, `config.js`, `app.js`, `planner.js`, `quick-live.js`, `sw.js` en `manifest.webmanifest` naar je website/GitHub Pages.
+2. Open de site via **HTTPS**. GPS en service workers werken niet betrouwbaar wanneer je `index.html` rechtstreeks als `file://` opent.
+3. Geef locatie-toegang wanneer OVFlow daar om vraagt.
 
-Open daarna `http://SERVER-IP:3000`.
+## Belangrijk over De Lijn API-sleutels
+Omdat dit een volledig statische app is, moeten browseraanvragen rechtstreeks naar De Lijn gaan. Daardoor kan een API-sleutel die in `config.js` staat door bezoekers worden bekeken. Dat is technisch onvermijdelijk zonder backend. Gebruik alleen een De Lijn Open Data-key die je hiervoor mag gebruiken en bewaak de quota in het De Lijn-portaal.
 
-## Belangrijk
-Zet API keys alleen in `.env`, nooit in `app.js` of GitHub. De frontend praat met de OVFlow serverproxy.
-
-## Huidige plannergrens
-OVFlow 2.0 toont alleen routes die het betrouwbaar kan onderbouwen: NMBS station → station en rechtstreekse De Lijn halte → halte. Een volledige Belgische multimodale planner met bus/tram-overstappen vraagt een echte routing-engine op de GTFS Static feed; dat is bewust niet als nepresultaat gesimuleerd.
-
-## GitHub Pages / submap
-OVFlow 2.0.1 gebruikt relatieve paden voor `styles.css`, `app.js`, het manifest en de service worker. Daardoor werkt de interface ook wanneer de site onder `https://naam.github.io/repository/` staat. Upload de bestanden uit deze map samen in dezelfde GitHub-map.
-
-Let op: GitHub Pages kan geen Node.js `server.js` uitvoeren. De NMBS/iRail-delen kunnen rechtstreeks in de browser werken, maar De Lijn-livefuncties hebben de meegeleverde backend nodig op een echte Node-server of achter een eigen API-domein/reverse proxy.
+## Geen nep-live-data
+Wanneer een externe databron onbereikbaar is of browser/CORS-beleid de oproep blokkeert, toont OVFlow een foutmelding in plaats van verzonnen livegegevens.

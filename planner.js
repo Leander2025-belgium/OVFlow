@@ -11,6 +11,8 @@
 
   const API = "https://api.transitous.org/api/v6/plan";
   const IRAIL_API = "https://api.irail.be";
+  const cfg = window.OVFLOW_CONFIG || {};
+  let railStationsPromise = null;
 
   const planner = {
     from: null,
@@ -54,6 +56,64 @@
     return [stop.municipality, stop.name].filter(Boolean).join(" · ");
   }
 
+  function normalizeText(value) {
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+
+  async function ensureRailStations() {
+    if (!railStationsPromise) {
+      railStationsPromise = fetch(`${IRAIL_API}/stations/?format=json&lang=nl`, {
+        headers: { Accept: "application/json" }, cache: "force-cache"
+      }).then(async response => {
+        if (!response.ok) throw new Error(`iRail HTTP ${response.status}`);
+        const data = await response.json();
+        return (data.station || []).map(station => ({
+          stop: String(station.id || station.uri || station.name || ""),
+          entity: "NMBS",
+          name: station.standardname || station.name || "Station",
+          municipality: "NMBS",
+          street: "Treinstation",
+          lon: Number(station.locationX),
+          lat: Number(station.locationY),
+          provider: "NMBS",
+          rail: true
+        })).filter(station => Number.isFinite(station.lon) && Number.isFinite(station.lat));
+      }).catch(error => {
+        railStationsPromise = null;
+        console.debug("iRail stations:", error);
+        return [];
+      });
+    }
+    return railStationsPromise;
+  }
+
+  async function searchPlaces(query) {
+    const q = query.trim();
+    const railPromise = ensureRailStations().then(stations => {
+      const n = normalizeText(q);
+      return stations.filter(station => normalizeText(station.name).includes(n)).slice(0, 6);
+    });
+
+    const roadPromise = (async () => {
+      await bridge.ensureStopsLoaded();
+      return bridge.searchStops(q).slice(0, 10).map(stop => ({
+        ...stop,
+        provider: stop.provider || "De Lijn",
+        rail: false
+      }));
+    })();
+
+    const [road, rail] = await Promise.all([roadPromise, railPromise]);
+    const combined = [...rail, ...road];
+    const seen = new Set();
+    return combined.filter(place => {
+      const key = `${normalizeText(place.name)}:${Number(place.lat).toFixed(4)}:${Number(place.lon).toFixed(4)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 12);
+  }
+
   function createSearch(inputSel, resultsSel, side) {
     const input = $(inputSel);
     const box = $(resultsSel);
@@ -77,8 +137,7 @@
 
       timer = setTimeout(async () => {
         try {
-          await bridge.ensureStopsLoaded();
-          renderSuggestions(box, bridge.searchStops(q).slice(0, 10), side);
+          renderSuggestions(box, await searchPlaces(q), side);
         } catch (e) {
           box.innerHTML = `
             <div class="planner-suggestion">
@@ -97,8 +156,7 @@
       const q = input.value.trim();
       if (q.length < 2) return;
       try {
-        await bridge.ensureStopsLoaded();
-        renderSuggestions(box, bridge.searchStops(q).slice(0, 10), side);
+        renderSuggestions(box, await searchPlaces(q), side);
       } catch {}
     });
   }
@@ -119,10 +177,10 @@
 
     box.innerHTML = stops.map((s, i) => `
       <button class="planner-suggestion" type="button" data-i="${i}">
-        <span class="planner-suggestion-icon">H</span>
+        <span class="planner-suggestion-icon">${s.rail ? "T" : "H"}</span>
         <span>
           <strong>${esc(s.name)}</strong>
-          <small>${esc([s.municipality, s.street].filter(Boolean).join(" · ") || `halte ${s.stop || ""}`)}</small>
+          <small>${esc([s.provider || s.municipality, s.street].filter(Boolean).join(" · ") || `halte ${s.stop || ""}`)}</small>
         </span>
       </button>`).join("");
 
@@ -144,7 +202,9 @@
       stop: String(stop.stop || ""),
       entity: String(stop.entity || ""),
       lon: Number(stop.lon),
-      lat: Number(stop.lat)
+      lat: Number(stop.lat),
+      provider: stop.provider || "",
+      rail: Boolean(stop.rail)
     };
 
     if (!Number.isFinite(normalized.lon) || !Number.isFinite(normalized.lat)) {
@@ -177,12 +237,11 @@
 
     navigator.geolocation.getCurrentPosition(async pos => {
       try {
-        await bridge.ensureStopsLoaded();
         const lon = pos.coords.longitude;
         const lat = pos.coords.latitude;
-
+        await bridge.ensureStopsLoaded();
         const nearest = bridge.getStops()
-          .map(s => ({ ...s, d: haversine(lon, lat, s.lon, s.lat) }))
+          .map(s => ({ ...s, d: haversine(lon, lat, s.lon, s.lat), provider: s.provider || "De Lijn" }))
           .sort((a, b) => a.d - b.d)[0];
 
         if (!nearest) throw new Error("Geen halte gevonden");
@@ -1537,10 +1596,11 @@
               <span class="live-stop-active-badge hidden" data-live-stop-badge="${index}"></span>
             </div>
             <span data-live-stop-status="${index}">${index === 0 ? "Vertrek" : index === lastIndex ? vocab.final : "Gepland"}</span>
-            <small>${[platform, delayText].filter(Boolean).join(" · ")}</small>
+            <small>${platform || (index === 0 ? "Vertrekpunt" : destination ? "Eindbestemming" : "Volgende ritstap")}</small>
           </div>
           <div class="live-trip-stop-time">
             <strong>${expected ? timeText(expected) : "--:--"}</strong>
+            ${delayText ? `<em class="live-stop-delay ${delay.className}">${esc(delayText)}</em>` : `<em class="live-stop-delay ontime">Op tijd</em>`}
             ${scheduled && expected && Math.abs(expected - scheduled) >= 60000 ? `<small>${timeText(scheduled)}</small>` : ""}
           </div>
         </div>`;
@@ -1593,7 +1653,7 @@
     }
     if (detail) {
       detail.textContent = delay.available
-        ? "OVFlow toont alleen een oorzaak wanneer de databron die werkelijk meegeeft."
+        ? `${liveVocabulary(live.leg).vehicle} · ${nextStop?.name || "volgende stop"} · realtime verwachting`
         : "OVFlow combineert haltevolgorde, dienstregeling en GPS zonder een oorzaak te verzinnen.";
     }
     if (lastUpdate) lastUpdate.textContent = `Laatste update ${timeText(new Date())}`;
@@ -1737,6 +1797,7 @@
     const vocab = liveVocabulary(live.leg);
     const delay = liveDelayInfo(live.leg, nextStop);
     $("#liveTripSession")?.setAttribute("data-live-mode", vocab.type);
+    $("#liveTripSession")?.setAttribute("data-delay-state", delay.className);
     $("#liveTripNextKind").textContent = vocab.next.toUpperCase();
     $("#liveTripNextStop").textContent = nextStop.name;
     $("#liveTripEta").textContent = timeText(asDate(liveStopTime(nextStop))) || "—";
@@ -1968,8 +2029,8 @@
     startLiveGps();
     requestWakeLock();
 
-    planner.live.tickTimer = setInterval(renderLiveTrip, 10000);
-    planner.live.refreshTimer = setInterval(refreshLiveTripData, 60000);
+    planner.live.tickTimer = setInterval(renderLiveTrip, 5000);
+    planner.live.refreshTimer = setInterval(refreshLiveTripData, 45000);
 
     $("#liveTripSession").scrollIntoView({ behavior: "smooth", block: "start" });
     toast("Live Trip gestart");
@@ -2117,6 +2178,15 @@
 
   $("#plannerGo").addEventListener("click", planRoute);
   $("#plannerRetry").addEventListener("click", planRoute);
+
+  document.addEventListener("visibilitychange", () => {
+    if (!planner.live?.active) return;
+    if (document.visibilityState === "visible") {
+      requestWakeLock();
+      refreshLiveTripData();
+      renderLiveTrip();
+    }
+  });
 
   $("#liveTripClose").addEventListener("click", () => stopLiveTrip(true));
   $("#liveTripStopButton").addEventListener("click", () => stopLiveTrip(true));
