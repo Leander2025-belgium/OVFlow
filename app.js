@@ -249,5 +249,8 @@
   window.addEventListener("beforeunload",()=>{stopGeoWatch();stopMap();});
 
   updateHeaderLocation(); render();
-  if("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("/sw.js").catch(()=>{});
+  window.__OVFLOW_BOOTED__ = true;
+  if("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  }
 })();

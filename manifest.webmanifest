@@ -1,9 +1,10 @@
 {
   "name": "OVFlow 2.0",
   "short_name": "OVFlow",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#06101d",
   "theme_color": "#07101f",
-  "description": "Trein, bus en tram in één Belgische OV-app."
+  "description": "Trein, bus en tram in één Belgische OV-app.",
+  "scope": "./"
 }

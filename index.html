@@ -7,10 +7,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>OVFlow 2.0</title>
-  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="/styles.css?v=2.0.0" />
+  <link rel="stylesheet" href="./styles.css?v=2.0.1" />
 </head>
 <body>
   <div class="app-shell">
@@ -47,6 +47,15 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="/app.js?v=2.0.0"></script>
+  <script>
+    window.__OVFLOW_BOOTED__ = false;
+    window.setTimeout(() => {
+      const app = document.getElementById("app");
+      if (!window.__OVFLOW_BOOTED__ && app && !app.children.length) {
+        app.innerHTML = '<section style="margin:24px;padding:18px;border-radius:20px;background:#102438;color:#fff;font:15px system-ui"><strong>OVFlow kon niet volledig starten.</strong><p style="opacity:.72;line-height:1.45">Vernieuw de pagina. Blijft dit staan, controleer dan of app.js en styles.css naast index.html staan.</p></section>';
+      }
+    }, 1800);
+  </script>
+  <script src="./app.js?v=2.0.1"></script>
 </body>
 </html>
