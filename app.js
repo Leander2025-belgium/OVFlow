@@ -700,10 +700,10 @@
   function setupAutoRefresh() {
     clearInterval(state.timer);
     $("#autoRefreshButton").classList.toggle("off", !state.autoRefresh);
-    $("#autoRefreshLabel").textContent = state.autoRefresh ? "Elke 30 sec" : "Uit";
+    $("#autoRefreshLabel").textContent = state.autoRefresh ? "Elke 15 sec" : "Uit";
     $("#refreshState").textContent = state.autoRefresh ? "Actief" : "Uit";
     $("#refreshState").className = state.autoRefresh ? "state-ok" : "";
-    if (state.autoRefresh) state.timer = setInterval(fetchLive, Number(cfg.AUTO_REFRESH_MS || 30000));
+    if (state.autoRefresh) state.timer = setInterval(fetchLive, Number(cfg.AUTO_REFRESH_MS || 15000));
   }
 
   function openSettings() {
@@ -767,16 +767,56 @@
       $$(".nav-item[data-target]").forEach(item => item.classList.remove("active"));
       button.classList.add("active");
       const target = button.dataset.target;
-      if (target === "home") window.scrollTo({ top:0, behavior:"smooth" });
-      if (target === "departures") $(".departures-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
+
+      if (target === "home") {
+        $("#homeDashboard")?.scrollIntoView({ behavior:"smooth", block:"start" });
+      }
+
+      if (target === "plan") {
+        $("#journeyPlanner")?.scrollIntoView({ behavior:"smooth", block:"start" });
+        setTimeout(() => $("#plannerFrom")?.focus(), 450);
+      }
+
       if (target === "live") {
         const liveSession = $("#liveTripSession");
-        const destination = liveSession && !liveSession.classList.contains("hidden") ? liveSession : $("#quickLivePanel");
+        const destination =
+          liveSession && !liveSession.classList.contains("hidden")
+            ? liveSession
+            : $("#quickLivePanel");
         destination?.scrollIntoView({ behavior:"smooth", block:"start" });
       }
-      if (target === "data") $(".real-map-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
+
+      if (target === "stops") {
+        $(".departures-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
+      }
     });
   });
+
+
+  // OVFlow 2.0 home quick actions.
+  $("#homePlanAction")?.addEventListener("click", () => {
+    $("#journeyPlanner")?.scrollIntoView({ behavior:"smooth", block:"start" });
+    setTimeout(() => $("#plannerFrom")?.focus(), 450);
+  });
+
+  $("#homeStopAction")?.addEventListener("click", () => {
+    document.querySelector("section.hero")?.scrollIntoView({ behavior:"smooth", block:"start" });
+    setTimeout(() => $("#stopSearchInput")?.focus(), 450);
+  });
+
+  $("#homeLiveAction")?.addEventListener("click", () => {
+    const liveSession = $("#liveTripSession");
+    const destination =
+      liveSession && !liveSession.classList.contains("hidden")
+        ? liveSession
+        : $("#quickLivePanel");
+    destination?.scrollIntoView({ behavior:"smooth", block:"start" });
+  });
+
+  $("#homeMapAction")?.addEventListener("click", () => {
+    $("#mapSection")?.scrollIntoView({ behavior:"smooth", block:"start" });
+  });
+
 
 
   function showPlannerRouteOnMap(itinerary) {

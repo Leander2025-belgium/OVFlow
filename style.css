@@ -2198,3 +2198,621 @@ body:before{
     border-radius:20px !important;
   }
 }
+
+
+
+/* =====================================================================
+   OVFLOW 2.0 — PRODUCTION TRANSIT UI
+   Clear, bright, readable, iPhone-first
+   ===================================================================== */
+
+body.ovflow-v20{
+  --v20-bg:#f3f9fd;
+  --v20-surface:#ffffff;
+  --v20-surface-glass:rgba(255,255,255,.88);
+  --v20-surface-soft:#eef7fc;
+  --v20-ink:#10233f;
+  --v20-ink-2:#355677;
+  --v20-muted:#708ba5;
+  --v20-border:#d8e7f1;
+  --v20-blue:#167de5;
+  --v20-blue-soft:#e8f3ff;
+  --v20-mint:#21b889;
+  --v20-mint-soft:#e5f8f1;
+  --v20-amber:#b97b11;
+  --v20-red:#d45167;
+  --v20-shadow:0 10px 34px rgba(27,80,118,.09);
+  background:
+    radial-gradient(circle at 100% 0%,rgba(61,168,245,.10),transparent 29%),
+    linear-gradient(180deg,#f8fcff 0%,#f1f8fc 52%,#f6fbfe 100%) !important;
+  color:var(--v20-ink)!important;
+  font-size:16px;
+}
+
+body.ovflow-v20 .app{
+  width:min(100%,900px);
+  padding-left:14px;
+  padding-right:14px;
+}
+
+body.ovflow-v20 .topbar{
+  min-height:72px;
+  margin-bottom:12px;
+}
+body.ovflow-v20 .brand-mark{
+  width:48px;height:48px;border-radius:16px;
+}
+body.ovflow-v20 .brand-copy strong{
+  font-size:23px;
+}
+body.ovflow-v20 .brand-copy small{
+  display:block!important;
+  color:#93abc0!important;
+  font-size:12px!important;
+  margin-top:1px;
+}
+body.ovflow-v20 .top-actions .live-status{
+  min-height:44px;
+  padding:0 13px;
+  font-size:12px;
+}
+body.ovflow-v20 .top-actions .live-status span{display:inline!important}
+body.ovflow-v20 .icon-button{
+  width:44px;height:44px;border-radius:14px;
+}
+
+/* HOME */
+.home-dashboard{
+  margin-bottom:14px;
+  padding:24px;
+  border:1px solid var(--v20-border);
+  border-radius:28px;
+  background:
+    radial-gradient(circle at 95% 5%,rgba(74,181,255,.16),transparent 31%),
+    linear-gradient(145deg,#ffffff,#f0f9ff);
+  box-shadow:var(--v20-shadow);
+}
+.home-welcome{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+}
+.home-eyebrow{
+  display:block;
+  margin-bottom:4px;
+  color:var(--v20-blue);
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.home-welcome h1{
+  margin:0;
+  color:var(--v20-ink);
+  font-size:clamp(30px,6vw,46px);
+  letter-spacing:-.045em;
+  line-height:1.05;
+}
+.home-welcome p{
+  max-width:560px;
+  margin:8px 0 0;
+  color:var(--v20-ink-2);
+  font-size:14px;
+  line-height:1.45;
+}
+.home-live-pill{
+  flex:0 0 auto;
+  min-height:36px;
+  padding:0 11px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  border:1px solid rgba(33,184,137,.15);
+  border-radius:999px;
+  background:var(--v20-mint-soft);
+  color:#0d8a67;
+  font-size:11px;
+  font-weight:850;
+}
+.home-live-pill i{
+  width:8px;height:8px;border-radius:50%;
+  background:#2bd6a0;
+  box-shadow:0 0 0 5px rgba(43,214,160,.09);
+}
+.home-quick-actions{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:9px;
+  margin-top:20px;
+}
+.home-action{
+  min-height:82px;
+  border:1px solid var(--v20-border);
+  border-radius:18px;
+  background:rgba(255,255,255,.86);
+  color:var(--v20-ink);
+  padding:12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  text-align:left;
+  cursor:pointer;
+}
+.home-action.primary{
+  border-color:rgba(22,125,229,.17);
+  background:linear-gradient(145deg,#ebf6ff,#e3f2ff);
+}
+.home-action-icon{
+  width:38px;height:38px;flex:0 0 38px;
+  display:grid;place-items:center;
+  border-radius:12px;
+  background:var(--v20-blue-soft);
+  color:var(--v20-blue);
+  font-size:16px;
+  font-weight:900;
+}
+.home-action strong,.home-action small{display:block}
+.home-action strong{font-size:13px}
+.home-action small{margin-top:2px;color:var(--v20-muted);font-size:11px}
+
+/* Panels: less glass-for-glass' sake; more real app clarity */
+body.ovflow-v20 .panel,
+body.ovflow-v20 .journey-planner,
+body.ovflow-v20 .quick-live-panel,
+body.ovflow-v20 .live-trip-session,
+body.ovflow-v20 .departures-panel,
+body.ovflow-v20 .real-map-panel{
+  border:1px solid var(--v20-border)!important;
+  border-radius:26px!important;
+  background:rgba(255,255,255,.94)!important;
+  box-shadow:var(--v20-shadow)!important;
+  backdrop-filter:blur(18px)!important;
+  -webkit-backdrop-filter:blur(18px)!important;
+}
+
+body.ovflow-v20 .section-kicker{
+  color:#6d88a2!important;
+  font-size:11px!important;
+  letter-spacing:.07em!important;
+}
+body.ovflow-v20 .section-head h2,
+body.ovflow-v20 .planner-title-row h2,
+body.ovflow-v20 .quick-live-head h2{
+  color:var(--v20-ink)!important;
+  font-size:26px!important;
+  line-height:1.12;
+}
+body.ovflow-v20 .planner-title-row p,
+body.ovflow-v20 .quick-live-head p{
+  color:var(--v20-ink-2)!important;
+  font-size:14px!important;
+  line-height:1.45!important;
+}
+
+/* Planner first-class */
+body.ovflow-v20 .journey-planner{
+  padding:20px!important;
+  margin-bottom:14px;
+}
+body.ovflow-v20 .planner-title-row{
+  align-items:flex-start!important;
+  margin-bottom:14px!important;
+}
+body.ovflow-v20 .planner-data-pill{
+  min-height:34px;
+  padding:0 10px;
+  border-color:rgba(33,184,137,.14)!important;
+  background:var(--v20-mint-soft)!important;
+  color:#0f8968!important;
+  font-size:10px!important;
+}
+body.ovflow-v20 .journey-card{
+  border:1px solid var(--v20-border)!important;
+  border-radius:22px!important;
+  background:#f9fcfe!important;
+  padding:12px!important;
+}
+body.ovflow-v20 .journey-field{
+  min-height:76px!important;
+  border-color:var(--v20-border)!important;
+  background:white!important;
+}
+body.ovflow-v20 .journey-field>span{
+  color:#6e88a1!important;
+  font-size:11px!important;
+  font-weight:850!important;
+}
+body.ovflow-v20 .journey-field input{
+  color:var(--v20-ink)!important;
+  font-size:17px!important;
+  font-weight:750!important;
+}
+body.ovflow-v20 .journey-field input::placeholder{color:#9aafc1!important}
+body.ovflow-v20 .journey-location,
+body.ovflow-v20 .journey-clear,
+body.ovflow-v20 .journey-swap{
+  border-color:var(--v20-border)!important;
+  background:#edf6fc!important;
+  color:#557796!important;
+}
+body.ovflow-v20 .planner-segmented{
+  min-height:48px!important;
+  background:#edf4f8!important;
+}
+body.ovflow-v20 .planner-segmented button{
+  min-height:42px!important;
+  color:#65809b!important;
+  font-size:13px!important;
+}
+body.ovflow-v20 .planner-segmented button.active{
+  background:white!important;
+  color:var(--v20-ink)!important;
+  box-shadow:0 3px 12px rgba(27,80,118,.09)!important;
+}
+body.ovflow-v20 .planner-pref{
+  min-height:48px!important;
+  background:white!important;
+  border-color:var(--v20-border)!important;
+  color:var(--v20-ink-2)!important;
+}
+body.ovflow-v20 .journey-plan-button{
+  min-height:64px!important;
+  margin-top:10px!important;
+  border-radius:17px!important;
+  background:linear-gradient(135deg,#1a8df3,#1677d8)!important;
+  color:#fff!important;
+  box-shadow:0 10px 22px rgba(22,125,229,.20)!important;
+}
+body.ovflow-v20 .journey-plan-copy small{
+  color:rgba(255,255,255,.78)!important;
+  font-size:10px!important;
+}
+body.ovflow-v20 .journey-plan-copy strong{font-size:17px!important}
+
+/* Hero = stop search, compact and useful */
+body.ovflow-v20 .hero{
+  padding:20px!important;
+  margin-bottom:14px;
+  border-radius:26px!important;
+  background:
+    radial-gradient(circle at 91% 0%,rgba(80,187,255,.12),transparent 31%),
+    #fff!important;
+  border:1px solid var(--v20-border)!important;
+  box-shadow:var(--v20-shadow)!important;
+}
+body.ovflow-v20 .hero-grid,
+body.ovflow-v20 .hero-glow{display:none!important}
+body.ovflow-v20 .hero-copy .kicker{font-size:11px!important}
+body.ovflow-v20 .hero h1{
+  margin:6px 0!important;
+  color:var(--v20-ink)!important;
+  font-size:34px!important;
+  line-height:1.03!important;
+}
+body.ovflow-v20 .hero h1 span{color:var(--v20-blue)!important}
+body.ovflow-v20 .hero-copy p{
+  color:var(--v20-ink-2)!important;
+  font-size:14px!important;
+}
+body.ovflow-v20 .search-card{
+  margin-top:16px!important;
+  padding:10px!important;
+  background:#f7fbfe!important;
+  border-color:var(--v20-border)!important;
+}
+body.ovflow-v20 .stop-search-box{
+  min-height:56px!important;
+  background:white!important;
+  border-color:var(--v20-border)!important;
+}
+body.ovflow-v20 .stop-search-box input{
+  color:var(--v20-ink)!important;
+  font-size:17px!important;
+}
+body.ovflow-v20 .stop-search-status{
+  color:var(--v20-muted)!important;
+  font-size:11px!important;
+}
+body.ovflow-v20 .active-stop-card{
+  min-height:68px;
+  padding:8px;
+  border-radius:16px;
+}
+body.ovflow-v20 .search-copy span{font-size:10px!important}
+body.ovflow-v20 .search-copy strong{
+  color:var(--v20-ink)!important;
+  font-size:16px!important;
+}
+body.ovflow-v20 .search-copy small{
+  color:var(--v20-muted)!important;
+  font-size:11px!important;
+}
+body.ovflow-v20 .small-button{
+  min-height:40px!important;
+  font-size:12px!important;
+}
+
+/* Departure overview */
+body.ovflow-v20 .stats-grid{
+  margin:0 0 10px!important;
+}
+body.ovflow-v20 .stat-card{
+  min-height:92px!important;
+  border-color:var(--v20-border)!important;
+  background:#fff!important;
+  box-shadow:0 7px 20px rgba(27,80,118,.05)!important;
+}
+body.ovflow-v20 .stat-card div span{font-size:10px!important}
+body.ovflow-v20 .stat-card strong{font-size:23px!important;color:var(--v20-ink)!important}
+
+body.ovflow-v20 .departures-panel{
+  padding:18px!important;
+  margin-bottom:14px;
+}
+body.ovflow-v20 .refresh-button{
+  min-height:42px!important;
+  padding:0 13px!important;
+  font-size:12px!important;
+}
+body.ovflow-v20 .departure-card{
+  min-height:82px!important;
+  background:#fff!important;
+  border-color:var(--v20-border)!important;
+  padding:12px!important;
+}
+body.ovflow-v20 .line-badge{
+  min-width:50px!important;height:44px!important;
+  border-radius:13px!important;
+  background:var(--v20-blue-soft)!important;
+  color:#176fbd!important;
+  font-size:14px!important;
+}
+body.ovflow-v20 .departure-main strong{
+  color:var(--v20-ink)!important;
+  font-size:15px!important;
+}
+body.ovflow-v20 .departure-main span{
+  color:var(--v20-muted)!important;
+  font-size:11px!important;
+}
+body.ovflow-v20 .departure-time strong{
+  color:var(--v20-ink)!important;
+  font-size:19px!important;
+}
+body.ovflow-v20 .departure-time span{font-size:10px!important}
+
+/* Live quick start */
+body.ovflow-v20 .quick-live-panel{
+  padding:20px!important;
+  margin-bottom:14px;
+  background:
+    radial-gradient(circle at 95% 0%,rgba(33,184,137,.10),transparent 30%),
+    #fff!important;
+}
+body.ovflow-v20 .browser-only-chip{
+  color:#0d8a67!important;
+  background:var(--v20-mint-soft)!important;
+  border-color:rgba(33,184,137,.14)!important;
+  min-height:34px!important;
+  font-size:10px!important;
+}
+body.ovflow-v20 .quick-live-input-wrap{
+  min-height:58px!important;
+}
+body.ovflow-v20 .quick-live-input-wrap input{
+  font-size:17px!important;
+}
+body.ovflow-v20 .quick-live-search-button{
+  min-height:58px!important;
+  font-size:13px!important;
+}
+body.ovflow-v20 .quick-live-status{
+  font-size:11px!important;
+}
+body.ovflow-v20 .quick-live-result{
+  min-height:90px!important;
+}
+body.ovflow-v20 .quick-live-result-main strong{font-size:14px!important}
+body.ovflow-v20 .quick-live-result-main span,
+body.ovflow-v20 .quick-live-result-main small{font-size:10px!important}
+body.ovflow-v20 .quick-live-start{
+  min-height:42px!important;
+  font-size:11px!important;
+}
+
+/* Live Trip: information-first, readable */
+body.ovflow-v20 .live-trip-session{
+  padding:20px!important;
+  margin-bottom:14px;
+}
+body.ovflow-v20 .live-trip-session-head h2{font-size:27px!important}
+body.ovflow-v20 .live-trip-title-wrap p{font-size:13px!important}
+body.ovflow-v20 .live-trip-gps{min-height:40px!important;font-size:11px!important}
+body.ovflow-v20 .premium-live-hero{
+  min-height:130px!important;
+  grid-template-columns:60px minmax(0,1fr) auto!important;
+  gap:14px!important;
+  padding:16px!important;
+}
+body.ovflow-v20 .live-trip-line-badge{
+  width:58px!important;height:58px!important;
+  font-size:17px!important;
+}
+body.ovflow-v20 .live-trip-next-kind{font-size:10px!important}
+body.ovflow-v20 .live-trip-heading strong{
+  font-size:23px!important;
+  white-space:normal!important;
+  line-height:1.15!important;
+}
+body.ovflow-v20 .live-trip-heading small,
+body.ovflow-v20 .live-trip-hero-meta{font-size:12px!important}
+body.ovflow-v20 .live-trip-countdown strong{font-size:29px!important}
+body.ovflow-v20 .live-trip-countdown small{font-size:11px!important}
+body.ovflow-v20 .live-trip-delay-badge{
+  min-height:30px!important;
+  padding:0 9px!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  font-size:10px!important;
+}
+body.ovflow-v20 .live-trip-alert{min-height:70px!important}
+body.ovflow-v20 .live-trip-alert strong{font-size:14px!important}
+body.ovflow-v20 .live-trip-alert small{font-size:11px!important}
+body.ovflow-v20 .live-trip-progress-meta{font-size:10px!important}
+body.ovflow-v20 .live-trip-progress-center strong{font-size:14px!important}
+body.ovflow-v20 .live-trip-progress-center small{font-size:9px!important}
+body.ovflow-v20 .live-trip-status-grid{
+  grid-template-columns:repeat(3,1fr)!important;
+  gap:9px!important;
+}
+body.ovflow-v20 .live-trip-status-card{
+  min-height:110px!important;
+  padding:14px!important;
+}
+body.ovflow-v20 .live-trip-status-card>span{font-size:10px!important}
+body.ovflow-v20 .live-trip-status-card strong{font-size:22px!important}
+body.ovflow-v20 .live-trip-status-card small{font-size:11px!important}
+body.ovflow-v20 .live-trip-overview-head h3{font-size:24px!important}
+body.ovflow-v20 .live-trip-map-button{min-height:44px!important;font-size:11px!important}
+body.ovflow-v20 .live-trip-stop-row{min-height:68px!important}
+body.ovflow-v20 .live-trip-stop-copy strong{font-size:14px!important}
+body.ovflow-v20 .live-trip-stop-copy span{font-size:10px!important}
+body.ovflow-v20 .live-trip-stop-time{font-size:13px!important}
+body.ovflow-v20 .live-trip-realtime-copy strong{font-size:14px!important}
+body.ovflow-v20 .live-trip-realtime-copy small,
+body.ovflow-v20 .live-trip-realtime-update span{font-size:10px!important}
+
+/* Map */
+body.ovflow-v20 .real-map-panel{
+  padding:18px!important;
+  margin-bottom:14px;
+}
+body.ovflow-v20 .map-shell{
+  height:430px!important;
+  border-radius:20px!important;
+}
+body.ovflow-v20 .map-caption{
+  font-size:9px!important;
+}
+
+/* Remove developer / API dashboard from consumer UI */
+body.ovflow-v20 .technical-details,
+body.ovflow-v20 .technical-footer{
+  display:none!important;
+}
+body.ovflow-v20 .planner-source-note{
+  display:none!important;
+}
+
+/* Suggestions & popovers readable */
+body.ovflow-v20 .stop-results,
+body.ovflow-v20 .planner-suggestions{
+  background:rgba(255,255,255,.98)!important;
+  border-color:var(--v20-border)!important;
+  box-shadow:0 18px 50px rgba(27,80,118,.16)!important;
+}
+body.ovflow-v20 .stop-result,
+body.ovflow-v20 .planner-suggestion{
+  color:var(--v20-ink)!important;
+}
+body.ovflow-v20 .stop-result-copy strong,
+body.ovflow-v20 .planner-suggestion strong{font-size:14px!important}
+body.ovflow-v20 .stop-result-copy span,
+body.ovflow-v20 .planner-suggestion small{font-size:11px!important;color:var(--v20-muted)!important}
+
+/* Bottom navigation */
+body.ovflow-v20 .bottom-nav{
+  width:min(calc(100% - 20px),680px)!important;
+  min-height:76px!important;
+  padding:7px!important;
+  grid-template-columns:repeat(5,1fr)!important;
+  border-radius:24px!important;
+  border:1px solid rgba(98,142,178,.17)!important;
+  background:rgba(255,255,255,.91)!important;
+  box-shadow:0 14px 44px rgba(27,80,118,.16)!important;
+}
+body.ovflow-v20 .nav-item{
+  min-height:58px!important;
+  height:auto!important;
+  color:#6e89a4!important;
+  border-radius:17px!important;
+}
+body.ovflow-v20 .nav-item svg{width:21px!important}
+body.ovflow-v20 .nav-item small{
+  font-size:10px!important;
+  font-weight:800!important;
+}
+body.ovflow-v20 .nav-item.active{
+  color:#0d3159!important;
+  background:#eef7fd!important;
+  border:1px solid rgba(89,143,184,.10)!important;
+}
+body.ovflow-v20 .nav-live.active{
+  color:#087b5e!important;
+  background:var(--v20-mint-soft)!important;
+}
+
+/* Settings sheet readable */
+body.ovflow-v20 .settings-sheet{
+  background:#fff!important;
+}
+body.ovflow-v20 .sheet-head h2{font-size:25px!important}
+body.ovflow-v20 .sheet-info strong{font-size:14px!important}
+body.ovflow-v20 .sheet-info p{font-size:12px!important}
+body.ovflow-v20 .form-field span{font-size:11px!important}
+body.ovflow-v20 .form-field input,
+body.ovflow-v20 .form-field select{
+  font-size:16px!important;
+}
+
+/* Responsive */
+@media(max-width:720px){
+  .home-quick-actions{grid-template-columns:1fr 1fr}
+  body.ovflow-v20 .live-trip-status-grid{grid-template-columns:1fr 1fr!important}
+}
+@media(max-width:560px){
+  body.ovflow-v20 .app{padding-left:9px;padding-right:9px}
+  .home-dashboard{padding:18px;border-radius:24px}
+  .home-welcome{display:block}
+  .home-live-pill{width:max-content;margin-top:12px}
+  .home-welcome h1{font-size:34px}
+  .home-action{min-height:76px;padding:10px}
+  .home-action strong{font-size:12px}
+  .home-action small{font-size:10px}
+  body.ovflow-v20 .journey-planner,
+  body.ovflow-v20 .hero,
+  body.ovflow-v20 .departures-panel,
+  body.ovflow-v20 .quick-live-panel,
+  body.ovflow-v20 .live-trip-session,
+  body.ovflow-v20 .real-map-panel{padding:14px!important}
+  body.ovflow-v20 .planner-title-row{
+    display:block!important;
+  }
+  body.ovflow-v20 .planner-data-pill{width:max-content;margin-top:9px}
+  body.ovflow-v20 .journey-options{align-items:stretch!important}
+  body.ovflow-v20 .hero h1{font-size:30px!important}
+  body.ovflow-v20 .stats-grid{
+    grid-template-columns:1fr 1fr!important;
+  }
+  body.ovflow-v20 .stat-card:last-child{grid-column:1/-1}
+  body.ovflow-v20 .premium-live-hero{
+    grid-template-columns:50px minmax(0,1fr) 70px!important;
+    gap:9px!important;
+    padding:12px!important;
+  }
+  body.ovflow-v20 .live-trip-line-badge{
+    width:48px!important;height:48px!important;font-size:14px!important;
+  }
+  body.ovflow-v20 .live-trip-heading strong{font-size:19px!important}
+  body.ovflow-v20 .live-trip-countdown strong{font-size:23px!important}
+  body.ovflow-v20 .live-trip-status-card{min-height:100px!important}
+  body.ovflow-v20 .map-shell{height:380px!important}
+  body.ovflow-v20 .bottom-nav{bottom:max(8px,env(safe-area-inset-bottom))!important}
+}
+@media(max-width:380px){
+  .home-quick-actions{grid-template-columns:1fr}
+  body.ovflow-v20 .stats-grid{grid-template-columns:1fr!important}
+  body.ovflow-v20 .stat-card:last-child{grid-column:auto}
+  body.ovflow-v20 .live-trip-status-grid{grid-template-columns:1fr!important}
+}

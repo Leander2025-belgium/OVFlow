@@ -1,38 +1,49 @@
-OVFlow 2.0 v11 — LIGHT TRANSIT + SCREEN-OFF RESYNC
+OVFlow 2.0 — FINAL TRANSIT REDESIGN
 
-DESIGN
-- Hele app omgezet van donker naar licht OV-design.
-- Wit / lichtblauw / mint met marineblauwe tekst.
-- Lichte Apple-achtige Liquid Glass panelen.
-- Lichte zwevende bottom navigation.
-- Live Trip volgt de goedgekeurde mockup:
-  * route/rit duidelijk bovenaan
-  * volgende halte/station als hoofdkaart
-  * lichte statuskaarten
-  * helder ritoverzicht/timeline
-  * mint/blauwe actieve halte
-  * lichte realtime informatiekaart
+DOEL
+Een echte, duidelijke openbaarvervoer-app in plaats van een technisch dashboard.
 
-LIVE TRIP BIJ IPHONE SCHERM-UIT
-iOS/Safari kan JavaScript, timers en GPS tijdelijk pauzeren wanneer het scherm uit staat.
-Een gewone website kan dat niet volledig voorkomen.
+NIEUWE HIERARCHIE
+1. Home: snelle acties
+2. Plannen: routeplanner staat vooraan
+3. Haltes & vertrekken
+4. Realtime vertrekbord
+5. Live rit
+6. Kaart / haltes in de buurt
 
-v11 lost het praktische probleem daarom zo op:
-1. Bij achtergrond/scherm-uit onthoudt OVFlow dat Live Trip gepauzeerd kan zijn.
-2. Bij ontgrendelen / terugkeren / pageshow / focus:
-   - realtime tijden van DEZELFDE locked rit worden vernieuwd;
-   - er wordt een verse high-accuracy GPS-fix gevraagd;
-   - OVFlow vergelijkt GPS met ALLE nog komende stopsegmenten;
-   - dienstregeling/realtime tijd wordt als tweede zekerheid gebruikt;
-   - OVFlow kan meerdere gemiste haltes in één keer inhalen;
-   - daarna wordt watchPosition volledig opnieuw gestart.
-3. Haltevolgorde en bestemming blijven nog steeds locked zoals in v10.2.
+BOTTOM NAV
+- Home
+- Plannen
+- Live
+- Haltes
+- Meer
 
-NORMALE LIVE TRACKING
-Tijdens normaal gebruik blijft de voorzichtige segment-voor-segment tracking behouden,
-zodat GPS-jitter geen willekeurige haltes kan overslaan.
+UI
+- Licht, rustig OV-design
+- Duidelijke marineblauwe tekst op witte kaarten
+- Blauw voor acties/routing
+- Mintgroen voor live/realtime
+- Veel grotere tekst dan vorige versies
+- Geen miniatuur-labels van 7-8 px meer in de belangrijkste flows
+- Minder onnodige glassmorphism
+- Grote touch targets
+- Technische API-panelen verborgen voor de gewone gebruiker
+
+REISINFO
+- Realtime haltevertrekken
+- Routeplanner bus/tram/trein
+- Live Trip
+- Alle haltes/stations per rit
+- NMBS/iRail integratie
+- Kaart + haltezoeker
+- GPS resync na iPhone scherm-uit
+
+REALTIME REFRESH
+Automatisch vernieuwen is ingesteld op 15 seconden.
+
+BROWSER-ONLY
+Blijft bruikbaar via GitHub Pages zonder eigen OVFlow backend.
+Voor publieke productie blijven browser-side API-sleutels wel een tijdelijk ontwikkelcompromis.
 
 CACHE
-Alle lokale assets laden met ?v=11.0 voor GitHub Pages/Safari.
-
-Browser-only blijft behouden.
+Lokale assets laden met ?v=2.0.0

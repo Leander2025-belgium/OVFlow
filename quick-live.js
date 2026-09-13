@@ -387,8 +387,8 @@
     clearError();
     $("#quickLiveResults").classList.add("hidden");
 
-    setLoading(true, "Je locatie bepalen…", "Geen eigen OVFlow-server nodig");
-    setStatus("Rechtstreeks verbinden met De Lijn…", "loading");
+    setLoading(true, "Je locatie bepalen…", "Je locatie en actuele ritten worden opgehaald");
+    setStatus("Actuele ritten ophalen…", "loading");
 
     try {
       const position = await getPosition();
@@ -447,9 +447,9 @@
     $("#quickLiveLine").value = "";
     $("#quickLiveResults").classList.add("hidden");
     clearError();
-    setStatus("Geen eigen server nodig.", "idle");
+    setStatus("Klaar om ritten in je buurt te zoeken.", "idle");
     $("#quickLiveLine").focus();
   });
 
-  setStatus("Geen eigen server nodig.", "idle");
+  setStatus("Klaar om ritten in je buurt te zoeken.", "idle");
 })();

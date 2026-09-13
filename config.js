@@ -14,7 +14,7 @@ window.OVFLOW_CONFIG = {
     maxDepartures: 6
   },
 
-  AUTO_REFRESH_MS: 30000,
+  AUTO_REFRESH_MS: 15000,
 
   // Publieke geografische halteservice van Digitaal Vlaanderen.
   HALTES_WFS_URL: "https://geo.api.vlaanderen.be/Haltes/wfs",
