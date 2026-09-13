@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#06121b" />
+  <meta name="theme-color" content="#edf8ff" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OVFlow 2.0 v10.2 — Premium Live Trip</title>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>OVFlow 2.0 v11 — Light Transit</title>
   <link href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=10.2" />
+  <link rel="stylesheet" href="style.css?v=11.0" />
 </head>
 <body>
   <div class="ambient a"></div>
@@ -395,8 +395,8 @@
           </button>
         </div>
 
-        <p class="live-trip-note">
-          Live Trip gebruikt je GPS en actuele OV-data. Op iPhone werkt volgen het betrouwbaarst terwijl OVFlow zichtbaar blijft.
+        <p class="live-trip-note" id="liveTripResumeNote">
+          Live Trip gebruikt je GPS en actuele OV-data. Als iPhone het volgen pauzeert bij scherm-uit, synchroniseert OVFlow automatisch opnieuw zodra je ontgrendelt.
         </p>
       </section>
 
@@ -656,9 +656,9 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
-  <script src="config.js?v=10.2"></script>
-  <script src="app.js?v=10.2"></script>
-  <script src="planner.js?v=10.2"></script>
-  <script src="quick-live.js?v=10.2"></script>
+  <script src="config.js?v=11.0"></script>
+  <script src="app.js?v=11.0"></script>
+  <script src="planner.js?v=11.0"></script>
+  <script src="quick-live.js?v=11.0"></script>
 </body>
 </html>

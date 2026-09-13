@@ -2048,6 +2048,211 @@
   }
 
 
+
+  function freshLivePosition() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocatie niet beschikbaar"));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(position => {
+        resolve({
+          lat: Number(position.coords.latitude),
+          lon: Number(position.coords.longitude),
+          accuracy: Number(position.coords.accuracy),
+          speed: position.coords.speed == null ? null : Number(position.coords.speed),
+          heading: position.coords.heading == null ? null : Number(position.coords.heading),
+          timestamp: position.timestamp
+        });
+      }, reject, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 14000
+      });
+    });
+  }
+
+  function expectedNextIndexByTime(live) {
+    const stops = live?.stops || [];
+    if (stops.length < 2) return 1;
+
+    const current = Math.max(1, Math.min(stops.length - 1, Number(live.nextIndex || 1)));
+    const now = Date.now();
+
+    for (let i = current; i < stops.length; i++) {
+      const d = asDate(liveStopTime(stops[i]));
+      if (!d) continue;
+
+      // Keep a stop as the expected "next" until roughly 75 seconds after its live time.
+      if (d.getTime() >= now - 75000) return i;
+    }
+
+    return stops.length - 1;
+  }
+
+  function bestSegmentIndexForPosition(live, position, timeCandidate) {
+    const stops = live?.stops || [];
+    if (!position || stops.length < 2) return null;
+
+    const accuracy = Number(position.accuracy ?? Infinity);
+    if (!Number.isFinite(accuracy) || accuracy > 220) return null;
+
+    const current = Math.max(1, Math.min(stops.length - 1, Number(live.nextIndex || 1)));
+    let best = null;
+
+    // Scan all remaining segments. Time is used as a second signal so loops/parallel roads
+    // do not accidentally snap to a far-future part of the same route.
+    for (let i = Math.max(0, current - 1); i < stops.length - 1; i++) {
+      const a = stops[i];
+      const b = stops[i + 1];
+      const projection = segmentProjection(position, a, b);
+      if (!projection) continue;
+
+      const allowedCrossTrack = Math.max(520, accuracy * 4.2);
+      if (projection.crossTrack > allowedCrossTrack) continue;
+
+      const aTime = asDate(liveStopTime(a));
+      const bTime = asDate(liveStopTime(b));
+      let timePenalty = 0;
+
+      if (aTime || bTime) {
+        const mid = aTime && bTime
+          ? (aTime.getTime() + bTime.getTime()) / 2
+          : (aTime || bTime).getTime();
+        const diffMinutes = Math.abs(Date.now() - mid) / 60000;
+        timePenalty = Math.min(700, diffMinutes * 24);
+      }
+
+      const backwardPenalty = i + 1 < current ? 10000 : 0;
+      const scheduleDistancePenalty = Number.isFinite(timeCandidate)
+        ? Math.abs((i + 1) - timeCandidate) * 18
+        : 0;
+
+      const score =
+        projection.crossTrack +
+        timePenalty +
+        backwardPenalty +
+        scheduleDistancePenalty;
+
+      if (!best || score < best.score) {
+        best = {
+          nextIndex: i + 1,
+          score,
+          crossTrack: projection.crossTrack,
+          fraction: projection.fraction
+        };
+      }
+    }
+
+    return best;
+  }
+
+  function calculateResumeNextIndex(live, position) {
+    const stops = live?.stops || [];
+    if (stops.length < 2) return 1;
+
+    const current = Math.max(1, Math.min(stops.length - 1, Number(live.nextIndex || 1)));
+    const timeCandidate = expectedNextIndexByTime(live);
+    const gpsCandidate = bestSegmentIndexForPosition(live, position, timeCandidate);
+
+    let candidate = Math.max(current, timeCandidate);
+
+    if (gpsCandidate) {
+      // Very close to the actual route: trust GPS strongly.
+      if (gpsCandidate.crossTrack <= 130) {
+        candidate = Math.max(current, gpsCandidate.nextIndex);
+      } else {
+        // With a weaker fix, only let GPS differ a few stops from the realtime timetable.
+        const boundedGps = Math.min(
+          gpsCandidate.nextIndex,
+          Math.max(current, timeCandidate + 3)
+        );
+        candidate = Math.max(current, boundedGps);
+      }
+    }
+
+    return Math.max(current, Math.min(stops.length - 1, candidate));
+  }
+
+  function alignProgressAfterResume(live) {
+    if (!live?.stops?.length) return;
+    const lastIndex = live.stops.length - 1;
+    if (lastIndex <= 0) return;
+
+    const minimumProgress = ((Math.max(1, live.nextIndex) - 1) / lastIndex) * 100;
+    live.progressTarget = Math.max(Number(live.progressTarget || 0), minimumProgress);
+    live.displayedProgress = Math.max(
+      Number.isFinite(Number(live.displayedProgress)) ? Number(live.displayedProgress) : 0,
+      minimumProgress
+    );
+  }
+
+  async function resyncLiveTripAfterResume(reason = "resume") {
+    const live = planner.live;
+    if (!live?.active || live.resyncing) return;
+
+    const now = Date.now();
+    if (now - Number(live.lastResumeSyncAt || 0) < 3500) return;
+
+    live.resyncing = true;
+    live.lastResumeSyncAt = now;
+    updateGpsStatus("Synchroniseren…", "loading");
+
+    const previousIndex = Number(live.nextIndex || 1);
+
+    try {
+      // First refresh times for the LOCKED trip. This may not change stop order/count.
+      if (
+        !live.lastSuccessfulRefreshAt ||
+        now - Number(live.lastSuccessfulRefreshAt) > 25000
+      ) {
+        await refreshLiveTripData();
+      }
+
+      let freshPosition = null;
+      try {
+        freshPosition = await freshLivePosition();
+        live.position = freshPosition;
+      } catch (error) {
+        console.debug("OVFlow Live Trip fresh GPS after resume:", error);
+      }
+
+      const resolvedIndex = calculateResumeNextIndex(live, freshPosition || live.position);
+
+      if (resolvedIndex > live.nextIndex) {
+        live.nextIndex = resolvedIndex;
+        resetCurrentStopTracker(live);
+        live.warnedReady = false;
+        live.warnedNow = false;
+        alignProgressAfterResume(live);
+      }
+
+      live.backgroundedAt = 0;
+
+      // Safari can leave an old watchPosition watcher stale after lock/unlock.
+      startLiveGps();
+      renderLiveTrip();
+
+      const advanced = Math.max(0, live.nextIndex - previousIndex);
+      if (advanced > 0) {
+        toast(
+          advanced === 1
+            ? "Live Trip bijgewerkt · 1 halte ingehaald"
+            : `Live Trip bijgewerkt · ${advanced} haltes ingehaald`
+        );
+      } else if (reason !== "focus") {
+        toast("Live Trip opnieuw gesynchroniseerd");
+      }
+    } catch (error) {
+      console.debug("OVFlow Live Trip resume sync:", error);
+      startLiveGps();
+      renderLiveTrip();
+    } finally {
+      live.resyncing = false;
+    }
+  }
+
   async function requestWakeLock() {
     const live = planner.live;
     try {
@@ -2070,6 +2275,15 @@
       updateGpsStatus("Tijdmodus", "warning");
       renderLiveTrip();
       return;
+    }
+
+    // iOS/Safari may silently suspend a watcher while the screen is off.
+    // Always restart it cleanly when this function is called again.
+    if (live.watchId != null) {
+      try {
+        navigator.geolocation.clearWatch(live.watchId);
+      } catch {}
+      live.watchId = null;
     }
 
     updateGpsStatus("GPS zoeken…", "loading");
@@ -2095,7 +2309,7 @@
       renderLiveTrip();
     }, {
       enableHighAccuracy: true,
-      maximumAge: 3000,
+      maximumAge: 1000,
       timeout: 15000
     });
   }
@@ -2149,7 +2363,10 @@
       lockedLine: String(leg.line || ""),
       lockedHeadsign: String(leg.headsign || ""),
       startedAt: Date.now(),
-      lastSuccessfulRefreshAt: 0
+      lastSuccessfulRefreshAt: 0,
+      backgroundedAt: 0,
+      lastResumeSyncAt: 0,
+      resyncing: false
     };
 
     // Stable local reference for the active Live Trip state.
@@ -2341,8 +2558,34 @@
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && planner.live.active && !planner.live.wakeLock) {
-      requestWakeLock();
+    const live = planner.live;
+    if (!live?.active) return;
+
+    if (document.visibilityState === "hidden") {
+      live.backgroundedAt = Date.now();
+      updateGpsStatus("iPhone gepauzeerd", "warning");
+      return;
+    }
+
+    requestWakeLock();
+    resyncLiveTripAfterResume("visibility");
+  });
+
+  window.addEventListener("pageshow", () => {
+    if (planner.live?.active) {
+      resyncLiveTripAfterResume("pageshow");
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    if (planner.live?.active && document.visibilityState === "visible") {
+      resyncLiveTripAfterResume("focus");
+    }
+  });
+
+  window.addEventListener("online", () => {
+    if (planner.live?.active) {
+      resyncLiveTripAfterResume("online");
     }
   });
 
