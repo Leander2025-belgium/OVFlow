@@ -9,8 +9,8 @@
     return;
   }
 
-  const API = "https://api.transitous.org/api/v6/plan";
-  const IRAIL_API = "https://api.irail.be";
+  const API = "/api/v3/journeys";
+  const IRAIL_API = "/api/v3/rail";
 
   const planner = {
     from: null,
@@ -279,7 +279,7 @@
     const toLat = Number(planner.to.lat);
     const toLon = Number(planner.to.lon);
 
-    const url = new URL(API);
+    const url = new URL(API, window.location.origin);
     url.searchParams.set("fromPlace", `${fromLat},${fromLon}`);
     url.searchParams.set("toPlace", `${toLat},${toLon}`);
     url.searchParams.set("time", apiDateTime(dt));
@@ -767,7 +767,7 @@
     let lastError = null;
     for (const id of candidates) {
       try {
-        const url = new URL(`${IRAIL_API}/vehicle/`);
+        const url = new URL(`${IRAIL_API}/vehicle`, window.location.origin);
         url.searchParams.set("id", id);
         url.searchParams.set("date", yymmddForIRail(leg.start));
         url.searchParams.set("format", "json");
@@ -1938,7 +1938,7 @@
     // live.stops is the LOCKED segment the user selected when Live Trip started.
     // A realtime refresh is NEVER allowed to replace this array or alter its length/order.
     try {
-      const url = new URL("https://api.transitous.org/api/v6/trip");
+      const url = new URL("/api/v3/trips/live", window.location.origin);
       url.searchParams.set("tripId", live.leg.tripId);
 
       const response = await fetch(url.toString(), {
