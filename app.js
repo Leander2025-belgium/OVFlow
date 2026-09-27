@@ -210,7 +210,7 @@
 
   function errorDescription(error) {
     const message = String(error?.message || error || "");
-    if (/401/.test(message)) return ["API-sleutel geweigerd", "De Core API geeft 401. Controleer DELIJN_CORE_API_KEY op de OVFlow-server."];
+    if (/401/.test(message)) return ["API-sleutel geweigerd", "De Core API geeft 401. Controleer de Core API-sleutel in config.js."];
     if (/403/.test(message)) return ["Geen toegang tot De Lijn API", "De API geeft 403. Controleer je De Lijn-abonnement."];
     if (/404/.test(message)) return ["Realtime halte niet gevonden", "De halte werd op de kaart gevonden, maar De Lijn herkende dit haltenummer niet voor realtime-data."];
     if (/429/.test(message)) return ["Te veel aanvragen", "De Lijn heeft tijdelijk een rate-limit toegepast."];
@@ -231,7 +231,7 @@
     // Fallback: probeer halte-detail uit de Core API.
     const url = `${cfg.CORE_BASE_URL}/haltes/${encodeURIComponent(state.stop.stop)}`;
     const response = await fetch(url, {
-      headers: { "Accept": "application/json" },
+      headers: { "Accept": "application/json", "Ocp-Apim-Subscription-Key": cfg.DELIJN_CORE_KEY },
       cache: "no-store"
     });
     if (!response.ok) throw new Error(`De Lijn API HTTP ${response.status}`);
@@ -274,7 +274,8 @@
         cache: "no-store",
         headers: {
           "Accept": "application/json",
-          "Cache-Control": "no-cache"
+          "Cache-Control": "no-cache",
+          "Ocp-Apim-Subscription-Key": cfg.DELIJN_CORE_KEY
         }
       });
 
@@ -737,7 +738,7 @@
     toast(state.autoRefresh ? "Automatisch vernieuwen aan" : "Automatisch vernieuwen uit");
   });
 
-  [$("#settingsButton"), $("#navSettings")].forEach(el => el.addEventListener("click", openSettings));
+  [$("#settingsButton"), $("#navSettings")].filter(Boolean).forEach(el => el.addEventListener("click", openSettings));
   $("#closeSettings").addEventListener("click", closeSettings);
   $("#sheetBackdrop").addEventListener("click", closeSettings);
 
@@ -988,7 +989,8 @@
       headers: {
         "Accept": "application/json",
         "Cache-Control": "no-cache",
-              }
+        "Ocp-Apim-Subscription-Key": cfg.DELIJN_CORE_KEY
+      }
     });
 
     if (!response.ok) throw new Error(`De Lijn API HTTP ${response.status}`);

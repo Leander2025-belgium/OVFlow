@@ -1,12 +1,9 @@
 {
-  "name": "ovflow-3",
-  "version": "3.0.0",
+  "name": "ovflow-2",
+  "version": "2.0.0",
   "private": true,
   "type": "commonjs",
-  "scripts": {
-    "start": "node server.js",
-    "check": "node --check server.js && node --check app.js && node --check planner.js && node --check quick-live.js"
-  },
+  "scripts": {"start": "node server.js", "check": "node --check server.js && node --check app.js"},
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

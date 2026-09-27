@@ -287,7 +287,7 @@
     let best = null;
 
     for (const dest of destinations) {
-      const url = new URL("/api/v3/journeys", window.location.origin);
+      const url = new URL("https://api.transitous.org/api/v6/plan");
       url.searchParams.set("fromPlace", `${candidate.stop.lat},${candidate.stop.lon}`);
       url.searchParams.set("toPlace", `${dest.lat},${dest.lon}`);
       url.searchParams.set("time", candidate.dep.effectiveDate.toISOString());

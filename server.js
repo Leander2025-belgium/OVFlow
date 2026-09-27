@@ -7,7 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
-const APP_VERSION = "OVFlow-3.0.0";
+const APP_VERSION = "OVFlow-2.0.0";
 const DATA_DIR = path.join(__dirname, "data");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -1211,67 +1211,6 @@ async function fetchByAbsoluteDeLijnUrl(url) {
     }
   });
 }
-
-
-// OVFlow 3 Core: browser clients talk only to this server.
-const TRANSITOUS_BASE = "https://api.transitous.org/api/v6";
-
-function copyQuery(searchParams, query) {
-  for (const [key, value] of Object.entries(query || {})) {
-    if (Array.isArray(value)) value.forEach(v => searchParams.append(key, String(v)));
-    else if (value != null) searchParams.set(key, String(value));
-  }
-}
-
-async function proxyJson(res, url, { ttl = 8_000, timeout = 18_000, headers = {} } = {}) {
-  try {
-    const data = await cachedJson(`v3:${url}`, ttl, () => fetchWithTimeout(url, {
-      headers: { Accept: "application/json", ...headers }
-    }, timeout));
-    res.set("Cache-Control", "no-store");
-    return res.json(data);
-  } catch (error) {
-    console.error("OVFlow Core upstream:", error?.message || error);
-    return publicError(res, 502, "De externe vervoersbron antwoordt momenteel niet.", "UPSTREAM_UNAVAILABLE");
-  }
-}
-
-app.get("/api/v3/health", (req, res) => {
-  res.json({ ok: true, service: "OVFlow Core", version: APP_VERSION, time: new Date().toISOString() });
-});
-
-app.get("/api/v3/journeys", async (req, res) => {
-  const url = new URL(`${TRANSITOUS_BASE}/plan`);
-  copyQuery(url.searchParams, req.query);
-  return proxyJson(res, url.toString(), { ttl: 7_000, timeout: 20_000 });
-});
-
-app.get("/api/v3/trips/live", async (req, res) => {
-  if (!req.query.tripId) return publicError(res, 400, "tripId ontbreekt.", "INVALID_TRIP");
-  const url = new URL(`${TRANSITOUS_BASE}/trip`);
-  copyQuery(url.searchParams, req.query);
-  return proxyJson(res, url.toString(), { ttl: 5_000, timeout: 15_000 });
-});
-
-app.get("/api/v3/rail/vehicle", async (req, res) => {
-  if (!req.query.id) return publicError(res, 400, "Trein-id ontbreekt.", "INVALID_VEHICLE");
-  const url = new URL(`${BASES.irail}/vehicle/`);
-  copyQuery(url.searchParams, req.query);
-  return proxyJson(res, url.toString(), { ttl: 10_000, timeout: 12_000 });
-});
-
-// Restricted De Lijn Core proxy. Keys remain server-side.
-app.get(/^\/api\/v3\/delijn\/core\/(.+)$/, async (req, res) => {
-  if (!DELIJN_CORE_API_KEY) return publicError(res, 503, "De Lijn Core API-sleutel ontbreekt op de server.", "DELIJN_KEY_MISSING");
-  const relative = req.params[0];
-  if (!/^[a-zA-Z0-9_\-/,]+$/.test(relative)) return publicError(res, 400, "Ongeldig De Lijn-pad.", "INVALID_PATH");
-  const url = new URL(`${BASES.kernApi}/${relative}`);
-  copyQuery(url.searchParams, req.query);
-  return proxyJson(res, url.toString(), {
-    ttl: ttlForPath(url.pathname),
-    headers: { "Ocp-Apim-Subscription-Key": DELIJN_CORE_API_KEY }
-  });
-});
 
 app.get("/api/delijn/health", (req, res) => {
   res.json({
