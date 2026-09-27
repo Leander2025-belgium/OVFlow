@@ -1,7 +1,7 @@
-const CACHE = "ovflow-static-2.1.1";
+const CACHE = "ovflow-static-3.0.1";
 const SHELL = [
   "./", "./index.html", "./style.css", "./config.js", "./app.js",
-  "./planner.js", "./quick-live.js", "./manifest.webmanifest"
+  "./planner.js", "./quick-live.js", "./ovflow-3-ui.js", "./manifest.webmanifest"
 ];
 
 self.addEventListener("install", event => {
@@ -30,12 +30,9 @@ self.addEventListener("fetch", event => {
   }
 
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      const network = fetch(event.request).then(response => {
-        if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
-        return response;
-      }).catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request).then(response => {
+      if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+      return response;
+    }).catch(() => caches.match(event.request))
   );
 });

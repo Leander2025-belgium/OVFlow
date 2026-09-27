@@ -2476,30 +2476,52 @@
     setLoading(true);
 
     try {
-      const url = buildRequest(dt);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 18000);
+      const primaryUrl = buildRequest(dt);
 
-      let response;
-      try {
-        response = await fetch(url.toString(), {
-          method: "GET",
-          mode: "cors",
-          cache: "no-store",
-          signal: controller.signal,
-          headers: {
-            "Accept": "application/json"
+      // Transitous can return 404 when a coordinate cannot be matched to the
+      // street/transit graph. Retry once with a wider stop radius and without
+      // routed first/last-mile transfers. This is especially useful close to
+      // borders, where the selected stop and the OSM street graph can differ.
+      const requestUrls = [primaryUrl];
+      const fallbackUrl = new URL(primaryUrl.toString());
+      fallbackUrl.searchParams.set("radius", "3000");
+      fallbackUrl.searchParams.set("useRoutedTransfers", "false");
+      fallbackUrl.searchParams.set("directModes", "");
+      fallbackUrl.searchParams.set("maxPreTransitTime", "3600");
+      fallbackUrl.searchParams.set("maxPostTransitTime", "3600");
+      requestUrls.push(fallbackUrl);
+
+      let response = null;
+      let data = null;
+      let lastStatus = 0;
+
+      for (const url of requestUrls) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 18000);
+        try {
+          response = await fetch(url.toString(), {
+            method: "GET",
+            mode: "cors",
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { "Accept": "application/json" }
+          });
+          lastStatus = response.status;
+          if (response.ok) {
+            data = await response.json();
+            break;
           }
-        });
-      } finally {
-        clearTimeout(timeout);
+        } finally {
+          clearTimeout(timeout);
+        }
       }
 
-      if (!response.ok) {
-        throw new Error(`Route-engine antwoordde met HTTP ${response.status}`);
+      if (!data) {
+        if (lastStatus === 404) {
+          throw new Error("Voor deze twee haltes kon de route-engine geen verbinding opbouwen. Probeer een nabijgelegen halte.");
+        }
+        throw new Error(`Route-engine antwoordde met HTTP ${lastStatus || "onbekend"}`);
       }
-
-      const data = await response.json();
       const raw =
         data?.itineraries ||
         data?.plan?.itineraries ||
