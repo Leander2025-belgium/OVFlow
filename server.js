@@ -7,7 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
-const APP_VERSION = "OVFlow-2.0.0";
+const APP_VERSION = "OVFlow-4.0.0-foundation";
 const DATA_DIR = path.join(__dirname, "data");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -327,7 +327,7 @@ function ttlForPath(path) {
     return REALTIME_CACHE_TTL_MS;
   }
 
-  if (path === "/lijnen" || path.includes("/lijnrichtingen")) {
+  if (path === "/lijnen" || path === "/haltes" || path.includes("/lijnrichtingen")) {
     return STATIC_CACHE_TTL_MS;
   }
 
@@ -440,6 +440,134 @@ async function callIrailDisturbances() {
       }
     }, 10_000);
   });
+}
+
+async function callIrailStations() {
+  const url = `${BASES.irail}/stations/?format=json&lang=nl`;
+  return cachedJson("irail:stations:nl", 24 * 60 * 60_000, () => {
+    return fetchWithTimeout(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "OVFlow/4.0 (public-transit-app)"
+      }
+    }, 10_000);
+  });
+}
+
+function normalizeIrailStations(data) {
+  const rows = Array.isArray(data?.station)
+    ? data.station
+    : data?.station ? [data.station] : [];
+
+  return rows.map(item => ({
+    id: String(item.id || item["@id"] || ""),
+    name: sanitizeText(item.standardname || item.name || "Station", 140),
+    displayName: sanitizeText(item.name || item.standardname || "Station", 140),
+    latitude: Number(item.locationY),
+    longitude: Number(item.locationX),
+    operator: "NMBS/SNCB",
+    mode: "train"
+  })).filter(item => item.id && Number.isFinite(item.latitude) && Number.isFinite(item.longitude));
+}
+
+async function callIrailLiveboard(stationId, max = 8) {
+  const url = new URL(`${BASES.irail}/liveboard/`);
+  url.searchParams.set("id", stationId);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("lang", "nl");
+  url.searchParams.set("arrdep", "departure");
+  url.searchParams.set("alerts", "false");
+
+  return cachedJson(`irail:liveboard:${stationId}`, 15_000, () => {
+    return fetchWithTimeout(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "OVFlow/4.0 (public-transit-app)"
+      }
+    }, 10_000);
+  }).then(data => {
+    const departures = Array.isArray(data?.departures?.departure)
+      ? data.departures.departure
+      : data?.departures?.departure ? [data.departures.departure] : [];
+    return { data, departures: departures.slice(0, Math.max(1, Math.min(Number(max) || 8, 20))) };
+  });
+}
+
+function unixSecondsToIso(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return new Date((n > 1e12 ? n : n * 1000)).toISOString();
+}
+
+function normalizeIrailDeparture(item, stationName = "") {
+  const delaySeconds = Number(item?.delay || 0);
+  const planned = unixSecondsToIso(item?.time);
+  const effective = planned
+    ? new Date(new Date(planned).getTime() + delaySeconds * 1000).toISOString()
+    : null;
+  const shortName = sanitizeText(item?.vehicleinfo?.shortname || item?.vehicle || "Trein", 60)
+    .replace(/^BE\.NMBS\./i, "")
+    .replace(/^(IC|L|P|S\d*|ICE|TGV|EUR|EXP)(\d)/i, "$1 $2");
+
+  return {
+    id: String(item?.departureConnection || item?.vehicle || `${stationName}-${planned || ""}`),
+    mode: "train",
+    line: shortName,
+    operator: "NMBS/SNCB",
+    destination: sanitizeText(item?.stationinfo?.standardname || item?.station || item?.direction?.name || "", 140),
+    origin: stationName,
+    plannedDeparture: planned,
+    realtimeDeparture: effective,
+    delayMinutes: Math.round(delaySeconds / 60),
+    platform: sanitizeText(item?.platforminfo?.name || item?.platform || "", 30),
+    platformChanged: item?.platforminfo?.normal === "0" || item?.platforminfo?.normal === 0,
+    realtime: true,
+    cancelled: item?.canceled === "1" || item?.canceled === 1 || item?.canceled === true,
+    vehicleId: String(item?.vehicle || ""),
+    source: "irail"
+  };
+}
+
+function normalizeDeLijnDepartureUnified(item, stop = {}) {
+  const rawTime = getPassageTime(item);
+  const parsed = parseTime(rawTime);
+  const statusText = valueToText(getFirstValue(item, ["status", "ritstatus", "doorkomstStatus", "predictionStatus"], ""));
+  const realtime = Boolean(
+    item?.realTime || item?.realtime || item?.isRealtime ||
+    /real|voorspel|prediction/i.test(statusText)
+  );
+  const delay = Number(getFirstValue(item, ["vertraging", "delay", "delayMinutes"], 0)) || 0;
+  return {
+    id: String(getFirstValue(item, ["ritnummer", "tripId", "id"], `${getLineNumber(item)}-${rawTime}`)),
+    mode: /tram/i.test(valueToText(getFirstValue(item, ["vervoertype", "transportType", "mode"], ""))) ? "tram" : "bus",
+    line: valueToText(getLineNumber(item)),
+    operator: "De Lijn",
+    destination: valueToText(getDirectionName(item)),
+    origin: stop.name || "",
+    plannedDeparture: parsed ? parsed.toISOString() : null,
+    realtimeDeparture: parsed ? parsed.toISOString() : null,
+    delayMinutes: Math.round(delay),
+    platform: "",
+    platformChanged: false,
+    realtime,
+    cancelled: /geannuleerd|cancel/i.test(statusText),
+    vehicleId: String(getFirstValue(item, ["voertuignummer", "vehicleId", "vehicle.id"], "")),
+    source: "delijn"
+  };
+}
+
+async function fetchTransitous(pathname, searchParams, ttlMs = 15_000) {
+  const url = new URL(`https://api.transitous.org/api${pathname}`);
+  for (const [key, value] of searchParams.entries()) {
+    if (value !== "" && value != null) url.searchParams.set(key, value);
+  }
+  const key = `transitous:${url.pathname}?${url.searchParams.toString()}`;
+  return cachedJson(key, ttlMs, () => fetchWithTimeout(url.toString(), {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "OVFlow/4.0 (public-transit-app)"
+    }
+  }, 20_000));
 }
 
 function normalizeIrailDisturbances(data) {
@@ -1211,6 +1339,287 @@ async function fetchByAbsoluteDeLijnUrl(url) {
     }
   });
 }
+
+// OVFlow 4.0 Core: one normalized data layer for the frontend.
+app.get("/api/v4/health", (req, res) => {
+  res.json({
+    ok: true,
+    version: APP_VERSION,
+    services: {
+      delijn: Boolean(DELIJN_CORE_API_KEY),
+      irail: true,
+      transitous: true
+    },
+    time: new Date().toISOString()
+  });
+});
+
+app.get("/api/v4/search", async (req, res) => {
+  const q = sanitizeText(req.query.q || "", 120);
+  const max = Math.min(Math.max(Number(req.query.max || 8) || 8, 1), 20);
+  if (q.length < 2) return res.json({ ok: true, query: q, results: [] });
+
+  const [delijnResult, railResult] = await Promise.allSettled([
+    Promise.all([getAllStops(), getAllLines()]),
+    callIrailStations()
+  ]);
+
+  const results = [];
+  if (delijnResult.status === "fulfilled") {
+    const [stops, lines] = delijnResult.value;
+    for (const stop of searchStops(stops, q, max)) {
+      const normalized = normalizeStops([stop])[0];
+      results.push({
+        type: "stop",
+        mode: "bus",
+        id: `${normalized.entiteit}-${normalized.haltenummer}`,
+        name: normalized.name,
+        subtitle: "De Lijn-halte",
+        latitude: Number(normalized.latitude),
+        longitude: Number(normalized.longitude),
+        entity: normalized.entiteit,
+        stopNumber: normalized.haltenummer,
+        operator: "De Lijn"
+      });
+    }
+
+    const lineSearch = parseLineSearch(q);
+    if (lineSearch.line) {
+      for (const line of findLineMatches(lines, lineSearch.line, lineSearch.areaQuery).slice(0, 5)) {
+        results.push({
+          type: "line",
+          mode: "bus",
+          id: `${line.entiteitnummer || ""}-${line.lijnnummer || line.lijnnummerPubliek || ""}`,
+          name: `Lijn ${valueToText(line.lijnnummerPubliek || line.lijnnummer)}`,
+          subtitle: sanitizeText(line.omschrijving || "De Lijn", 140),
+          operator: "De Lijn"
+        });
+      }
+    }
+  }
+
+  if (railResult.status === "fulfilled") {
+    const nq = normalizeSearchText(q);
+    normalizeIrailStations(railResult.value)
+      .filter(station => normalizeSearchText(`${station.name} ${station.displayName}`).includes(nq))
+      .slice(0, max)
+      .forEach(station => results.push({
+        type: "station",
+        mode: "train",
+        id: station.id,
+        name: station.name,
+        subtitle: "Treinstation",
+        latitude: station.latitude,
+        longitude: station.longitude,
+        operator: station.operator
+      }));
+  }
+
+  const order = { station: 0, stop: 1, line: 2 };
+  results.sort((a, b) => (order[a.type] ?? 9) - (order[b.type] ?? 9) || a.name.localeCompare(b.name, "nl"));
+  res.json({ ok: true, query: q, results: results.slice(0, max * 2) });
+});
+
+app.get("/api/v4/stops/:stopId/departures", async (req, res) => {
+  const match = sanitizeText(req.params.stopId, 80).match(/^(\d{1,3})[-:/](\d{1,8})$/);
+  const max = Math.min(Math.max(Number(req.query.max || 8) || 8, 1), 20);
+  if (!match) return publicError(res, 400, "Ongeldige halte.", "INVALID_STOP");
+  const [, entiteit, haltenummer] = match;
+
+  const result = await tryEndpoints(makeStopRealtimeCandidates(entiteit, haltenummer), `v4 departures ${entiteit}/${haltenummer}`);
+  if (!result.ok) return publicError(res, 503, "Live gegevens tijdelijk niet beschikbaar", "LIVE_UNAVAILABLE");
+
+  const raw = await enrichDeparturesWithPublicLines(extractDoorkomsten(result.data));
+  const departures = raw
+    .map(item => normalizeDeLijnDepartureUnified(item))
+    .filter(item => item.plannedDeparture)
+    .slice(0, max);
+
+  res.json({
+    ok: true,
+    source: "delijn",
+    stopId: `${entiteit}-${haltenummer}`,
+    realtimeAvailable: departures.some(item => item.realtime),
+    departures
+  });
+});
+
+app.get("/api/v4/rail/liveboard", async (req, res) => {
+  const stationId = sanitizeText(req.query.id || "", 180);
+  const max = Math.min(Math.max(Number(req.query.max || 8) || 8, 1), 20);
+  if (!stationId) return publicError(res, 400, "Station ontbreekt.", "INVALID_STATION");
+  try {
+    const { data, departures } = await callIrailLiveboard(stationId, max);
+    const stationName = sanitizeText(data?.stationinfo?.standardname || data?.station || "Station", 140);
+    res.json({
+      ok: true,
+      source: "irail",
+      station: { id: stationId, name: stationName },
+      departures: departures.map(item => normalizeIrailDeparture(item, stationName))
+    });
+  } catch (error) {
+    console.error("iRail liveboard:", error.message);
+    return publicError(res, 503, "Treininfo tijdelijk niet beschikbaar", "RAIL_UNAVAILABLE");
+  }
+});
+
+app.get("/api/v4/rail/vehicle", async (req, res) => {
+  const id = sanitizeText(req.query.id || "", 180);
+  const date = sanitizeText(req.query.date || "", 12);
+  if (!id) return publicError(res, 400, "Trein-id ontbreekt.", "INVALID_VEHICLE");
+  try {
+    const url = new URL(`${BASES.irail}/vehicle/`);
+    url.searchParams.set("id", id);
+    if (date) url.searchParams.set("date", date);
+    url.searchParams.set("format", "json");
+    url.searchParams.set("lang", "nl");
+    url.searchParams.set("alerts", "false");
+    const data = await cachedJson(`irail:vehicle:${id}:${date}`, 15_000, () => fetchWithTimeout(url.toString(), {
+      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.0 (public-transit-app)" }
+    }, 10_000));
+    res.json(data);
+  } catch (error) {
+    console.error("iRail vehicle:", error.message);
+    return publicError(res, 503, "Treinrit tijdelijk niet beschikbaar", "RAIL_VEHICLE_UNAVAILABLE");
+  }
+});
+
+app.get("/api/v4/nearby", async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lon = Number(req.query.lon);
+  const radius = Math.min(Math.max(Number(req.query.radius || 2500) || 2500, 250), 10000);
+  const maxPlaces = Math.min(Math.max(Number(req.query.maxPlaces || 6) || 6, 1), 10);
+  const maxDepartures = Math.min(Math.max(Number(req.query.maxDepartures || 3) || 3, 1), 6);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return publicError(res, 400, "Geef geldige lat en lon mee.", "INVALID_LOCATION");
+  }
+
+  const [delijnResult, railResult] = await Promise.allSettled([getAllStops(), callIrailStations()]);
+  const places = [];
+
+  if (delijnResult.status === "fulfilled") {
+    const stops = normalizeStops(delijnResult.value)
+      .map(stop => ({
+        ...stop,
+        latitude: Number(stop.latitude),
+        longitude: Number(stop.longitude),
+        distanceMeters: Math.round(haversineMeters(lat, lon, stop.latitude, stop.longitude))
+      }))
+      .filter(stop => Number.isFinite(stop.distanceMeters) && stop.distanceMeters <= radius)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)
+      .slice(0, Math.min(maxPlaces, 5));
+
+    const enriched = await mapLimit(stops, 3, async stop => {
+      try {
+        const result = await tryEndpoints(makeStopRealtimeCandidates(stop.entiteit, stop.haltenummer), `nearby ${stop.entiteit}/${stop.haltenummer}`);
+        if (!result.ok) throw new Error("geen realtime");
+        const raw = await enrichDeparturesWithPublicLines(extractDoorkomsten(result.data));
+        return {
+          type: "stop",
+          mode: "bus",
+          id: `${stop.entiteit}-${stop.haltenummer}`,
+          name: stop.name,
+          operator: "De Lijn",
+          distanceMeters: stop.distanceMeters,
+          latitude: stop.latitude,
+          longitude: stop.longitude,
+          departures: raw.map(item => normalizeDeLijnDepartureUnified(item, stop)).filter(item => item.plannedDeparture).slice(0, maxDepartures)
+        };
+      } catch {
+        return {
+          type: "stop",
+          mode: "bus",
+          id: `${stop.entiteit}-${stop.haltenummer}`,
+          name: stop.name,
+          operator: "De Lijn",
+          distanceMeters: stop.distanceMeters,
+          latitude: stop.latitude,
+          longitude: stop.longitude,
+          departures: [],
+          liveUnavailable: true
+        };
+      }
+    });
+    places.push(...enriched);
+  }
+
+  if (railResult.status === "fulfilled") {
+    const stations = normalizeIrailStations(railResult.value)
+      .map(station => ({ ...station, distanceMeters: Math.round(haversineMeters(lat, lon, station.latitude, station.longitude)) }))
+      .filter(station => Number.isFinite(station.distanceMeters) && station.distanceMeters <= Math.max(radius, 5000))
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)
+      .slice(0, 2);
+
+    for (const station of stations) {
+      try {
+        const { departures } = await callIrailLiveboard(station.id, maxDepartures);
+        places.push({
+          type: "station",
+          mode: "train",
+          id: station.id,
+          name: station.name,
+          operator: station.operator,
+          distanceMeters: station.distanceMeters,
+          latitude: station.latitude,
+          longitude: station.longitude,
+          departures: departures.map(item => normalizeIrailDeparture(item, station.name))
+        });
+      } catch {
+        places.push({ ...station, type: "station", departures: [], liveUnavailable: true });
+      }
+    }
+  }
+
+  places.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  res.json({
+    ok: true,
+    source: "ovflow-core",
+    location: { lat, lon },
+    radius,
+    places: places.slice(0, maxPlaces),
+    updatedAt: new Date().toISOString()
+  });
+});
+
+app.get("/api/v4/journeys", async (req, res) => {
+  const fromPlace = sanitizeText(req.query.fromPlace || "", 80);
+  const toPlace = sanitizeText(req.query.toPlace || "", 80);
+  if (!/^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$/.test(fromPlace) || !/^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$/.test(toPlace)) {
+    return publicError(res, 400, "Ongeldige vertrek- of bestemmingscoördinaten.", "INVALID_ROUTE_POINTS");
+  }
+
+  const allowed = new Set([
+    "fromPlace", "toPlace", "time", "arriveBy", "transitModes", "directModes",
+    "maxTransfers", "minTransferTime", "numItineraries", "radius", "detailedLegs",
+    "detailedTransfers", "useRoutedTransfers", "maxPreTransitTime", "maxPostTransitTime",
+    "maxDirectTime", "fastestDirectFactor", "realtimeMode", "joinInterlinedLegs",
+    "withScheduledSkippedStops", "language", "algorithm"
+  ]);
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(req.query)) {
+    if (allowed.has(key) && typeof value === "string") params.set(key, value.slice(0, 120));
+  }
+  try {
+    const data = await fetchTransitous("/v6/plan", params, 15_000);
+    res.json(data);
+  } catch (error) {
+    console.error("Transitous plan:", error.message);
+    return publicError(res, 503, "Routeplanner tijdelijk niet beschikbaar", "JOURNEY_UNAVAILABLE");
+  }
+});
+
+app.get("/api/v4/trips/live", async (req, res) => {
+  const tripId = sanitizeText(req.query.tripId || "", 240);
+  if (!tripId) return publicError(res, 400, "tripId ontbreekt.", "INVALID_TRIP");
+  const params = new URLSearchParams({ tripId });
+  try {
+    const data = await fetchTransitous("/v6/trip", params, 12_000);
+    res.json(data);
+  } catch (error) {
+    console.error("Transitous trip:", error.message);
+    return publicError(res, 503, "Live ritgegevens tijdelijk niet beschikbaar", "TRIP_LIVE_UNAVAILABLE");
+  }
+});
 
 app.get("/api/delijn/health", (req, res) => {
   res.json({

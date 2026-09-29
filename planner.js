@@ -9,8 +9,8 @@
     return;
   }
 
-  const API = "https://api.transitous.org/api/v6/plan";
-  const IRAIL_API = "https://api.irail.be";
+  const API = new URL("/api/v4/journeys", location.origin).toString();
+  const IRAIL_API = new URL("/api/v4/rail", location.origin).toString();
 
   const planner = {
     from: null,
@@ -82,7 +82,7 @@
         } catch (e) {
           box.innerHTML = `
             <div class="planner-suggestion">
-              <span class="planner-suggestion-icon">!</span>
+              <span class="planner-suggestion-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5M12 16h.01"></path></svg></span>
               <span>
                 <strong>Zoeken mislukt</strong>
                 <small>${esc(e.message || "Haltes konden niet worden geladen")}</small>
@@ -107,7 +107,7 @@
     if (!stops.length) {
       box.innerHTML = `
         <div class="planner-suggestion">
-          <span class="planner-suggestion-icon">?</span>
+          <span class="planner-suggestion-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M9.8 9a2.4 2.4 0 1 1 3.8 2c-1 .7-1.6 1.1-1.6 2.2M12 16h.01"></path></svg></span>
           <span>
             <strong>Geen halte gevonden</strong>
             <small>Probeer een andere plaats of haltenaam.</small>
@@ -119,7 +119,7 @@
 
     box.innerHTML = stops.map((s, i) => `
       <button class="planner-suggestion" type="button" data-i="${i}">
-        <span class="planner-suggestion-icon">H</span>
+        <span class="planner-suggestion-icon"><svg viewBox="0 0 24 24"><path d="M7 18V7c0-2 2-3 5-3s5 1 5 3v11"></path><path d="M9 9h6M8 13h8"></path></svg></span>
         <span>
           <strong>${esc(s.name)}</strong>
           <small>${esc([s.municipality, s.street].filter(Boolean).join(" · ") || `halte ${s.stop || ""}`)}</small>
@@ -359,13 +359,13 @@
 
   function modeIcon(mode) {
     const m = String(mode || "").toUpperCase();
-    if (m === "WALK") return "🚶";
-    if (m === "BUS") return "🚌";
-    if (m === "TRAM") return "🚋";
-    if (m === "SUBWAY") return "Ⓜ";
-    if (m.includes("RAIL") || m === "SUBURBAN") return "🚆";
-    if (m === "FERRY") return "⛴";
-    return "●";
+    if (m === "WALK") return '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"></circle><path d="m10 9 2-2 3 3 3 1M12 7l-1 6-3 4M11 13l4 5"></path></svg>';
+    if (m === "BUS") return '<svg viewBox="0 0 24 24"><path d="M6 17V7c0-2 2-3 6-3s6 1 6 3v10"></path><path d="M8 8h8M7 12h10M8 17v2M16 17v2"></path></svg>';
+    if (m === "TRAM") return '<svg viewBox="0 0 24 24"><path d="M8 4h8M12 4V2M7 18V8c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 9h6M8 13h8M9 18l-2 3M15 18l2 3"></path></svg>';
+    if (m === "SUBWAY") return '<svg viewBox="0 0 24 24"><path d="M7 18V7c0-2 2-3 5-3s5 1 5 3v11"></path><path d="M9 9h6M8 13h8M9 18l-2 3M15 18l2 3"></path></svg>';
+    if (m.includes("RAIL") || m === "SUBURBAN") return '<svg viewBox="0 0 24 24"><path d="M7 17V7c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 8h6M8 12h8M7 17h10M9 17l-2 3M15 17l2 3"></path></svg>';
+    if (m === "FERRY") return '<svg viewBox="0 0 24 24"><path d="M4 14h16l-2 5H6l-2-5Z"></path><path d="M8 14V7h8v7M10 7V4h4v3"></path></svg>';
+    return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"></circle></svg>';
   }
 
   function stopName(obj, fallback = "") {
@@ -767,7 +767,7 @@
     let lastError = null;
     for (const id of candidates) {
       try {
-        const url = new URL(`${IRAIL_API}/vehicle/`);
+        const url = new URL(`${IRAIL_API}/vehicle`);
         url.searchParams.set("id", id);
         url.searchParams.set("date", yymmddForIRail(leg.start));
         url.searchParams.set("format", "json");
@@ -1018,7 +1018,7 @@
             </div>
             <div class="route-card-actions">
               <button type="button" class="route-map-button" data-map="${i}">
-                <span>⌖</span> Toon op kaart
+                <span><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-3.5L19 20 12 3Z"></path></svg></span> Toon op kaart
               </button>
             </div>
           </div>
@@ -1938,7 +1938,7 @@
     // live.stops is the LOCKED segment the user selected when Live Trip started.
     // A realtime refresh is NEVER allowed to replace this array or alter its length/order.
     try {
-      const url = new URL("https://api.transitous.org/api/v6/trip");
+      const url = new URL("/api/v4/trips/live", location.origin);
       url.searchParams.set("tripId", live.leg.tripId);
 
       const response = await fetch(url.toString(), {

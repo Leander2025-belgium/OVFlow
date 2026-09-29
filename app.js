@@ -210,8 +210,8 @@
 
   function errorDescription(error) {
     const message = String(error?.message || error || "");
-    if (/401/.test(message)) return ["API-sleutel geweigerd", "De Core API geeft 401. Controleer de Core API-sleutel in config.js."];
-    if (/403/.test(message)) return ["Geen toegang tot De Lijn API", "De API geeft 403. Controleer je De Lijn-abonnement."];
+    if (/401/.test(message)) return ["OVFlow Core geweigerd", "De server kon de vervoersbron niet aanmelden."];
+    if (/403/.test(message)) return ["Geen toegang tot live-data", "OVFlow Core kreeg geen toegang tot de vervoersbron."];
     if (/404/.test(message)) return ["Realtime halte niet gevonden", "De halte werd op de kaart gevonden, maar De Lijn herkende dit haltenummer niet voor realtime-data."];
     if (/429/.test(message)) return ["Te veel aanvragen", "De Lijn heeft tijdelijk een rate-limit toegepast."];
     if (/Failed to fetch|NetworkError|CORS|Load failed/i.test(message)) {
@@ -228,15 +228,17 @@
       return;
     }
 
-    // Fallback: probeer halte-detail uit de Core API.
-    const url = `${cfg.CORE_BASE_URL}/haltes/${encodeURIComponent(state.stop.stop)}`;
-    const response = await fetch(url, {
-      headers: { "Accept": "application/json", "Ocp-Apim-Subscription-Key": cfg.DELIJN_CORE_KEY },
-      cache: "no-store"
-    });
-    if (!response.ok) throw new Error(`De Lijn API HTTP ${response.status}`);
+    // Fallback via OVFlow Core: API-sleutels blijven server-side.
+    const url = new URL("/api/delijn/haltes", location.origin);
+    url.searchParams.set("q", state.stop.stop);
+    url.searchParams.set("max", "5");
+    const response = await fetch(url.toString(), { headers: { "Accept": "application/json" }, cache: "no-store" });
+    if (!response.ok) throw new Error(`OVFlow Core HTTP ${response.status}`);
     const detail = await response.json();
-    state.stop.entity = String(detail.entiteitnummer ?? detail.entiteitNummer ?? detail.entiteit ?? "").trim();
+    const match = (detail?.stops || detail?.haltes || []).find(item =>
+      String(item.haltenummer || item.stop || "").replace(/\D/g, "") === digits
+    );
+    state.stop.entity = String(match?.entiteit || match?.entiteitnummer || "").trim();
   }
 
   async function fetchLive() {
@@ -264,24 +266,26 @@
       await resolveEntityIfNeeded();
       if (!state.stop.entity) throw new Error("Geen entiteitnummer voor deze halte gevonden");
 
-      const endpoint =
-        `${cfg.CORE_BASE_URL}/haltes/${encodeURIComponent(state.stop.entity)}/${encodeURIComponent(state.stop.stop)}` +
-        `/real-time?maxAantalDoorkomsten=${encodeURIComponent(state.stop.maxDepartures || 6)}`;
+      const endpoint = new URL(`/api/v4/stops/${encodeURIComponent(state.stop.entity)}-${encodeURIComponent(state.stop.stop)}/departures`, location.origin);
+      endpoint.searchParams.set("max", String(state.stop.maxDepartures || 6));
 
-      const response = await fetch(endpoint, {
+      const response = await fetch(endpoint.toString(), {
         method: "GET",
-        mode: "cors",
         cache: "no-store",
-        headers: {
-          "Accept": "application/json",
-          "Cache-Control": "no-cache",
-          "Ocp-Apim-Subscription-Key": cfg.DELIJN_CORE_KEY
-        }
+        headers: { "Accept": "application/json" }
       });
 
-      if (!response.ok) throw new Error(`De Lijn API HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`OVFlow Core HTTP ${response.status}`);
       const data = await response.json();
-      const departures = extractDepartures(data);
+      const departures = (data.departures || []).map(item => ({
+        line: item.line || "—",
+        destination: item.destination || "Onbekende richting",
+        plannedDate: parseDate(item.plannedDeparture),
+        realtimeDate: item.realtime ? parseDate(item.realtimeDeparture) : null,
+        effectiveDate: parseDate(item.realtimeDeparture || item.plannedDeparture),
+        delayMinutes: Number(item.delayMinutes || 0),
+        raw: item
+      })).filter(item => item.effectiveDate);
 
       $("#loadingCard").classList.add("hidden");
       renderDepartures(departures);
@@ -475,7 +479,7 @@
 
     box.innerHTML = results.map((stop, index) => `
       <button class="stop-result" type="button" data-index="${index}">
-        <span class="stop-result-icon">H</span>
+        <span class="stop-result-icon"><svg viewBox="0 0 24 24"><path d="M7 18V7c0-2 2-3 5-3s5 1 5 3v11"></path><path d="M9 9h6M8 13h8"></path></svg></span>
         <span class="stop-result-copy">
           <strong>${escapeHTML(stop.name)}</strong>
           <span>${escapeHTML([stop.municipality, stop.street, stop.stop ? `halte ${stop.stop}` : ""].filter(Boolean).join(" · "))}</span>
@@ -978,39 +982,27 @@
     if (!entity && /^\d{6,7}$/.test(stopNumber)) entity = stopNumber[0];
     if (!entity || !stopNumber) return [];
 
-    const endpoint =
-      `${cfg.CORE_BASE_URL}/haltes/${encodeURIComponent(entity)}/${encodeURIComponent(stopNumber)}` +
-      `/real-time?maxAantalDoorkomsten=${encodeURIComponent(max)}`;
+    const endpoint = new URL(`/api/v4/stops/${encodeURIComponent(entity)}-${encodeURIComponent(stopNumber)}/departures`, location.origin);
+    endpoint.searchParams.set("max", String(max));
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(endpoint.toString(), {
       method: "GET",
-      mode: "cors",
       cache: "no-store",
-      headers: {
-        "Accept": "application/json",
-        "Cache-Control": "no-cache",
-        "Ocp-Apim-Subscription-Key": cfg.DELIJN_CORE_KEY
-      }
+      headers: { "Accept": "application/json" }
     });
 
-    if (!response.ok) throw new Error(`De Lijn API HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`OVFlow Core HTTP ${response.status}`);
     const data = await response.json();
 
-    const groups = data?.halteDoorkomsten ?? data?.doorkomstenPerHalte ?? data?.departures ?? [];
-    let rows = [];
-
-    if (Array.isArray(groups)) {
-      for (const group of groups) {
-        const list = group?.doorkomsten ?? group?.departures ?? (Array.isArray(group) ? group : []);
-        if (Array.isArray(list)) rows.push(...list);
-      }
-    }
-    if (!rows.length && Array.isArray(data?.doorkomsten)) rows = data.doorkomsten;
-
-    return rows
-      .map(normalizeDeparture)
-      .filter(item => item.effectiveDate)
-      .sort((a, b) => a.effectiveDate - b.effectiveDate);
+    return (data.departures || []).map(item => ({
+      line: item.line || "—",
+      destination: item.destination || "Onbekende richting",
+      plannedDate: parseDate(item.plannedDeparture),
+      realtimeDate: item.realtime ? parseDate(item.realtimeDeparture) : null,
+      effectiveDate: parseDate(item.realtimeDeparture || item.plannedDeparture),
+      delayMinutes: Number(item.delayMinutes || 0),
+      raw: item
+    })).filter(item => item.effectiveDate).sort((a, b) => a.effectiveDate - b.effectiveDate);
   }
 
   window.OVFlowBridge = {
