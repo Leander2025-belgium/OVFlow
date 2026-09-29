@@ -767,17 +767,27 @@
     let lastError = null;
     for (const id of candidates) {
       try {
-        const url = new URL(`${IRAIL_API}/vehicle`);
-        url.searchParams.set("id", id);
-        url.searchParams.set("date", yymmddForIRail(leg.start));
-        url.searchParams.set("format", "json");
-        url.searchParams.set("lang", "nl");
-        url.searchParams.set("alerts", "true");
+        const proxyUrl = new URL(`${IRAIL_API}/vehicle`);
+        proxyUrl.searchParams.set("id", id);
+        proxyUrl.searchParams.set("date", yymmddForIRail(leg.start));
+        proxyUrl.searchParams.set("format", "json");
+        proxyUrl.searchParams.set("lang", "nl");
+        proxyUrl.searchParams.set("alerts", "true");
 
-        const response = await fetch(url.toString(), {
+        const directUrl = new URL("https://api.irail.be/vehicle/");
+        directUrl.search = proxyUrl.search;
+
+        let response = await fetch(proxyUrl.toString(), {
           headers: { "Accept": "application/json" },
           cache: "no-store"
         });
+        if (response.status === 404) {
+          response = await fetch(directUrl.toString(), {
+            mode: "cors",
+            headers: { "Accept": "application/json" },
+            cache: "no-store"
+          });
+        }
 
         if (!response.ok) {
           lastError = new Error(`iRail HTTP ${response.status}`);
@@ -1941,11 +1951,20 @@
       const url = new URL("/api/v4/trips/live", location.origin);
       url.searchParams.set("tripId", live.leg.tripId);
 
-      const response = await fetch(url.toString(), {
+      let response = await fetch(url.toString(), {
         headers: { "Accept": "application/json" },
         cache: "no-store"
       });
 
+      if (response.status === 404) {
+        const direct = new URL("https://api.transitous.org/api/v6/trip");
+        direct.searchParams.set("tripId", live.leg.tripId);
+        response = await fetch(direct.toString(), {
+          mode: "cors",
+          headers: { "Accept": "application/json" },
+          cache: "no-store"
+        });
+      }
       if (!response.ok) return;
 
       const data = await response.json();
@@ -2490,6 +2509,15 @@
       fallbackUrl.searchParams.set("maxPreTransitTime", "3600");
       fallbackUrl.searchParams.set("maxPostTransitTime", "3600");
       requestUrls.push(fallbackUrl);
+
+      // Compatibiliteit: wanneer de server nog OVFlow Core 3 draait, bestaan
+      // /api/v4-routes nog niet. Gebruik dan tijdelijk dezelfde Transitous-
+      // aanvragen rechtstreeks, zodat een frontend-update nooit de planner breekt.
+      const directPrimary = new URL("https://api.transitous.org/api/v6/plan");
+      directPrimary.search = primaryUrl.search;
+      const directFallback = new URL("https://api.transitous.org/api/v6/plan");
+      directFallback.search = fallbackUrl.search;
+      requestUrls.push(directPrimary, directFallback);
 
       let response = null;
       let data = null;

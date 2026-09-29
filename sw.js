@@ -1,7 +1,7 @@
-const CACHE = "ovflow-static-3.0.1";
+const CACHE = "ovflow-static-4.0.1";
 const SHELL = [
-  "./", "./index.html", "./style.css", "./config.js", "./app.js",
-  "./planner.js", "./quick-live.js", "./ovflow-3-ui.js", "./manifest.webmanifest"
+  "./", "./index.html", "./style.css", "./config.js", "./core-client.js", "./app.js",
+  "./planner.js", "./quick-live.js", "./ui.js", "./manifest.webmanifest"
 ];
 
 self.addEventListener("install", event => {

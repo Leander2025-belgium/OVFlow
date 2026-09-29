@@ -2,6 +2,7 @@
   "use strict";
 
   const cfg = window.OVFLOW_CONFIG || {};
+  const core = window.OVFlowCore;
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
 
@@ -266,17 +267,8 @@
       await resolveEntityIfNeeded();
       if (!state.stop.entity) throw new Error("Geen entiteitnummer voor deze halte gevonden");
 
-      const endpoint = new URL(`/api/v4/stops/${encodeURIComponent(state.stop.entity)}-${encodeURIComponent(state.stop.stop)}/departures`, location.origin);
-      endpoint.searchParams.set("max", String(state.stop.maxDepartures || 6));
-
-      const response = await fetch(endpoint.toString(), {
-        method: "GET",
-        cache: "no-store",
-        headers: { "Accept": "application/json" }
-      });
-
-      if (!response.ok) throw new Error(`OVFlow Core HTTP ${response.status}`);
-      const data = await response.json();
+      if (!core) throw new Error("OVFlow Core-client ontbreekt");
+      const data = await core.stopDepartures(state.stop.entity, state.stop.stop, Number(state.stop.maxDepartures || 6));
       const departures = (data.departures || []).map(item => ({
         line: item.line || "—",
         destination: item.destination || "Onbekende richting",
@@ -301,9 +293,15 @@
       $("#departureCount").textContent = "—";
       $("#nextDeparture").textContent = "—";
       $("#delayCount").textContent = "—";
-      $("#insightNextLine").textContent = "Geen live verbinding";
+      $("#insightNextLine").textContent = "Geen live vertrekdata";
       $("#insightNextMeta").textContent = message;
-      setApiState("error", "API-fout");
+      try {
+        const health = await core?.health();
+        if (health?.ok) setApiState("online", "Core online");
+        else setApiState("error", "Core offline");
+      } catch {
+        setApiState("error", "Core offline");
+      }
     } finally {
       state.loading = false;
       $("#refreshButton").classList.remove("spinning");
@@ -733,7 +731,7 @@
   $("#refreshNowButton").addEventListener("click", fetchLive);
   $("#navRefresh")?.addEventListener("click", fetchLive);
   $("#retryButton").addEventListener("click", fetchLive);
-  $("#apiStatusButton").addEventListener("click", fetchLive);
+  $("#apiStatusButton").addEventListener("click", checkCoreHealth);
 
   $("#autoRefreshButton").addEventListener("click", () => {
     state.autoRefresh = !state.autoRefresh;
@@ -982,17 +980,8 @@
     if (!entity && /^\d{6,7}$/.test(stopNumber)) entity = stopNumber[0];
     if (!entity || !stopNumber) return [];
 
-    const endpoint = new URL(`/api/v4/stops/${encodeURIComponent(entity)}-${encodeURIComponent(stopNumber)}/departures`, location.origin);
-    endpoint.searchParams.set("max", String(max));
-
-    const response = await fetch(endpoint.toString(), {
-      method: "GET",
-      cache: "no-store",
-      headers: { "Accept": "application/json" }
-    });
-
-    if (!response.ok) throw new Error(`OVFlow Core HTTP ${response.status}`);
-    const data = await response.json();
+    if (!core) throw new Error("OVFlow Core-client ontbreekt");
+    const data = await core.stopDepartures(entity, stopNumber, max);
 
     return (data.departures || []).map(item => ({
       line: item.line || "—",
@@ -1003,6 +992,23 @@
       delayMinutes: Number(item.delayMinutes || 0),
       raw: item
     })).filter(item => item.effectiveDate).sort((a, b) => a.effectiveDate - b.effectiveDate);
+  }
+
+  async function checkCoreHealth() {
+    if (!core) {
+      setApiState("error", "Core offline");
+      return;
+    }
+    try {
+      const status = await core.health(true);
+      if (status.ok) {
+        setApiState("online", status.mode === "v4" ? "Core 4 online" : "Core online");
+      } else {
+        setApiState("error", "Core offline");
+      }
+    } catch {
+      setApiState("error", "Core offline");
+    }
   }
 
   window.OVFlowBridge = {
@@ -1025,6 +1031,8 @@
   setInterval(updateClock, 1000);
   setupAutoRefresh();
   initMap();
+  checkCoreHealth();
+  setInterval(checkCoreHealth, 60_000);
 
   // Als er al een halte uit v3 opgeslagen is, laad die meteen.
   if (state.stop?.stop) fetchLive();

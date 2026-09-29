@@ -2,6 +2,7 @@
   "use strict";
 
   const $ = s => document.querySelector(s);
+  const core = window.OVFlowCore;
   const $$ = s => [...document.querySelectorAll(s)];
   const esc = value => String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -167,17 +168,17 @@
     try {
       const position = await getPosition();
       setNearbyState("loading", "Vertrekken ophalen…", `Locatie nauwkeurig tot ongeveer ${Math.round(position.accuracy || 0)} m`);
-      const url = new URL("/api/v4/nearby", location.origin);
-      url.searchParams.set("lat", position.lat);
-      url.searchParams.set("lon", position.lon);
-      url.searchParams.set("radius", "2500");
-      url.searchParams.set("maxPlaces", "6");
-      url.searchParams.set("maxDepartures", "3");
-      const response = await fetch(url.toString(), { cache: "no-store", headers: { Accept: "application/json" } });
-      if (!response.ok) throw new Error(`OVFlow Core HTTP ${response.status}`);
-      const data = await response.json();
+      if (!core) throw new Error("OVFlow Core-client ontbreekt");
+      const data = await core.nearby({
+        lat: position.lat,
+        lon: position.lon,
+        radius: 2500,
+        maxPlaces: 6,
+        maxDepartures: 3
+      });
       renderNearby(data.places || []);
-      setNearbyState("ready", "Dichtbij bijgewerkt", `${(data.places || []).length} haltes en stations · echte brondata`);
+      const sourceText = data.compatibility === "legacy" ? "compatibele live-bronnen" : "OVFlow Core 4";
+      setNearbyState("ready", "Dichtbij bijgewerkt", `${(data.places || []).length} haltes en stations · ${sourceText}`);
       const locateButton = $("#nearbyLocateButton");
       if (locateButton) locateButton.textContent = "Vernieuw";
     } catch (error) {
@@ -191,6 +192,14 @@
 
   $("#nearbyLocateButton")?.addEventListener("click", loadNearby);
   $("#nearbyRefreshButton")?.addEventListener("click", loadNearby);
+
+  // Laad Dichtbij automatisch wanneer de gebruiker eerder al locatietoegang gaf.
+  // We vragen nooit onverwacht toestemming bij het openen van de app.
+  if (navigator.permissions?.query) {
+    navigator.permissions.query({ name: "geolocation" }).then(permission => {
+      if (permission.state === "granted") loadNearby();
+    }).catch(() => {});
+  }
 
   function readSavedTrips() {
     try {
