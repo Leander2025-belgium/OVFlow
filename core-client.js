@@ -53,6 +53,22 @@
     return { ...state };
   }
 
+  function belgiumLocalDate(raw) {
+    const match = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
+    if (!match) return null;
+    const [, y, mo, d, h, mi, sec = "0", ms = "0"] = match;
+    const target = Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec, +(ms.padEnd(3, "0")));
+    const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Brussels", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+    let candidate = target;
+    for (let i = 0; i < 2; i += 1) {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+      const represented = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second, +(ms.padEnd(3, "0")));
+      candidate += target - represented;
+    }
+    const date = new Date(candidate);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   function parseDate(raw) {
     if (!raw) return null;
     if (raw instanceof Date) return raw;
@@ -61,6 +77,8 @@
       const d = new Date(n > 1e12 ? n : n * 1000);
       return Number.isNaN(d.getTime()) ? null : d;
     }
+    const belgian = belgiumLocalDate(raw);
+    if (belgian) return belgian;
     const d = new Date(raw);
     if (!Number.isNaN(d.getTime())) return d;
     const match = String(raw).match(/(\d{2}):(\d{2})(?::(\d{2}))?/);
@@ -90,8 +108,11 @@
     const effectiveRaw = realtimeRaw || plannedRaw;
     const planned = iso(plannedRaw || effectiveRaw);
     const realtimeDate = iso(realtimeRaw || effectiveRaw);
-    const status = String(pick(item, ["status", "ritstatus", "doorkomstStatus", "predictionStatus"], ""));
-    const realtime = Boolean(realtimeRaw || item.realTime || item.realtime || item.isRealtime || /real|voorspel|prediction/i.test(status));
+    const status = [
+      ...(Array.isArray(item?.predictionStatussen) ? item.predictionStatussen : []),
+      pick(item, ["status", "ritstatus", "doorkomstStatus", "predictionStatus"], "")
+    ].filter(Boolean).join(" ");
+    const realtime = Boolean(item.realTime || item.realtime || item.isRealtime || /real|voorspel|prediction/i.test(status));
     const line = pick(item, ["lijnnummerPubliek", "lijnnummer", "lijnNummer", "lineNumber", "lijn.lijnnummer", "lijn.nummer"], "—");
     const destination = pick(item, ["bestemming", "bestemmingNaam", "richting", "destination", "bestemming.omschrijving", "lijnrichting"], "Onbekende richting");
     let delayMinutes = Number(pick(item, ["delayMinutes", "vertraging"], 0)) || 0;
@@ -99,7 +120,7 @@
     if (!delayMinutes && planned && realtimeDate) delayMinutes = Math.round((new Date(realtimeDate) - new Date(planned)) / 60000);
     const modeRaw = String(pick(item, ["vervoertype", "transportType", "mode"], ""));
     return {
-      id: String(pick(item, ["ritnummer", "tripId", "id"], `${line}-${effectiveRaw}`)),
+      id: String(pick(item, ["doorkomstId", "tripId", "id", "ritnummer"], `${line}-${effectiveRaw}`)),
       mode: /tram/i.test(modeRaw) ? "tram" : "bus",
       line: String(line),
       operator: "De Lijn",

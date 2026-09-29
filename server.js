@@ -448,7 +448,7 @@ async function callIrailStations() {
     return fetchWithTimeout(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.0 (public-transit-app)"
+        "User-Agent": "OVFlow/4.0.2 (public-transit-app)"
       }
     }, 10_000);
   });
@@ -482,7 +482,7 @@ async function callIrailLiveboard(stationId, max = 8) {
     return fetchWithTimeout(url.toString(), {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.0 (public-transit-app)"
+        "User-Agent": "OVFlow/4.0.2 (public-transit-app)"
       }
     }, 10_000);
   }).then(data => {
@@ -529,29 +529,44 @@ function normalizeIrailDeparture(item, stationName = "") {
 }
 
 function normalizeDeLijnDepartureUnified(item, stop = {}) {
-  const rawTime = getPassageTime(item);
-  const parsed = parseTime(rawTime);
-  const statusText = valueToText(getFirstValue(item, ["status", "ritstatus", "doorkomstStatus", "predictionStatus"], ""));
+  const plannedRaw = getFirstValue(item, ["dienstregelingTijdstip", "geplandeTijdstip", "scheduledTime", "tijdstip", "doorkomsttijd"], "");
+  const realtimeRaw = getFirstValue(item, ["real-timeTijdstip", "realTimeTijdstip", "realtimeTijdstip", "verwachteDoorkomsttijd"], "");
+  const plannedDate = parseTime(plannedRaw || realtimeRaw);
+  const realtimeDate = parseTime(realtimeRaw || plannedRaw);
+  const predictionStatuses = Array.isArray(item?.predictionStatussen) ? item.predictionStatussen.join(" ") : "";
+  const statusText = [
+    predictionStatuses,
+    valueToText(getFirstValue(item, ["status", "ritstatus", "doorkomstStatus", "predictionStatus"], ""))
+  ].filter(Boolean).join(" ");
   const realtime = Boolean(
     item?.realTime || item?.realtime || item?.isRealtime ||
     /real|voorspel|prediction/i.test(statusText)
   );
-  const delay = Number(getFirstValue(item, ["vertraging", "delay", "delayMinutes"], 0)) || 0;
+  let delay = Number(getFirstValue(item, ["vertraging", "delay", "delayMinutes"], 0)) || 0;
+  if (plannedDate && realtimeDate) delay = Math.round((realtimeDate.getTime() - plannedDate.getTime()) / 60000);
+  const destination = valueToText(getFirstValue(item, [
+    "bestemming", "plaatsBestemming", "bestemmingKort",
+    "destination", "destination.name", "headsign",
+    "richtingOmschrijving", "lijnrichtingOmschrijving", "richting"
+  ], "Onbekende richting"));
+  const stopName = stop.name || "";
+  const bayMatch = stopName.match(/\b(?:perron|platform|halte)\s+([A-Za-z0-9-]+)\s*$/i);
   return {
-    id: String(getFirstValue(item, ["ritnummer", "tripId", "id"], `${getLineNumber(item)}-${rawTime}`)),
+    id: String(getFirstValue(item, ["doorkomstId", "tripId", "id", "ritnummer"], `${getLineNumber(item)}-${realtimeRaw || plannedRaw}`)),
     mode: /tram/i.test(valueToText(getFirstValue(item, ["vervoertype", "transportType", "mode"], ""))) ? "tram" : "bus",
     line: valueToText(getLineNumber(item)),
     operator: "De Lijn",
-    destination: valueToText(getDirectionName(item)),
-    origin: stop.name || "",
-    plannedDeparture: parsed ? parsed.toISOString() : null,
-    realtimeDeparture: parsed ? parsed.toISOString() : null,
-    delayMinutes: Math.round(delay),
+    destination,
+    origin: stopName,
+    plannedDeparture: plannedDate ? plannedDate.toISOString() : null,
+    realtimeDeparture: realtimeDate ? realtimeDate.toISOString() : null,
+    delayMinutes: delay,
     platform: "",
+    bay: bayMatch ? bayMatch[1] : "",
     platformChanged: false,
     realtime,
     cancelled: /geannuleerd|cancel/i.test(statusText),
-    vehicleId: String(getFirstValue(item, ["voertuignummer", "vehicleId", "vehicle.id"], "")),
+    vehicleId: String(getFirstValue(item, ["vrtnum", "voertuignummer", "vehicleId", "vehicle.id"], "")),
     source: "delijn"
   };
 }
@@ -565,7 +580,7 @@ async function fetchTransitous(pathname, searchParams, ttlMs = 15_000) {
   return cachedJson(key, ttlMs, () => fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
-      "User-Agent": "OVFlow/4.0 (public-transit-app)"
+      "User-Agent": "OVFlow/4.0.2 (public-transit-app)"
     }
   }, 20_000));
 }
@@ -921,19 +936,24 @@ function getLineNumber(item, fallback = "") {
 function getDirectionName(item, fallback = "Onbekende richting") {
   return valueToText(
     getFirstValue(item, [
-      "omschrijving",
-      "richting",
-      "richtingOmschrijving",
-      "lijnrichtingOmschrijving",
-      "lijnRichtingOmschrijving",
+      // Voor ritten/doorkomsten is de echte bestemming belangrijker dan de
+      // technische richtingcode (HEEN/TERUG). Richting blijft een fallback
+      // voor lijnrichting-objecten die geen bestemming bevatten.
       "bestemming",
+      "plaatsBestemming",
+      "bestemmingKort",
       "bestemming.omschrijving",
       "bestemming.naam",
       "destination",
       "destination.name",
+      "headsign",
+      "omschrijving",
+      "richtingOmschrijving",
+      "lijnrichtingOmschrijving",
+      "lijnRichtingOmschrijving",
       "naam",
       "name",
-      "headsign"
+      "richting"
     ], fallback)
   );
 }
@@ -974,6 +994,30 @@ function getPassageTime(item) {
   ], "");
 }
 
+function belgiumLocalIsoToDate(text) {
+  const match = String(text).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
+  if (!match) return null;
+
+  const [, y, mo, d, h, mi, sec = "0", ms = "0"] = match;
+  const targetUtcLike = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(sec), Number(ms.padEnd(3, "0")));
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Brussels",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hourCycle: "h23"
+  });
+
+  let candidate = targetUtcLike;
+  // Twee iteraties vangen ook de overgang zomer-/wintertijd correct op.
+  for (let i = 0; i < 2; i += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+    const representedLocal = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second), Number(ms.padEnd(3, "0")));
+    candidate += targetUtcLike - representedLocal;
+  }
+  const result = new Date(candidate);
+  return Number.isNaN(result.getTime()) ? null : result;
+}
+
 function parseTime(value) {
   if (!value) return null;
 
@@ -981,7 +1025,7 @@ function parseTime(value) {
     return new Date(value > 9999999999 ? value : value * 1000);
   }
 
-  const text = String(value);
+  const text = String(value).trim();
 
   if (/^\d{1,2}:\d{2}/.test(text)) {
     const [hours, minutes] = text.split(":").map(Number);
@@ -989,6 +1033,11 @@ function parseTime(value) {
     date.setHours(hours, minutes, 0, 0);
     return date;
   }
+
+  // De Lijn levert lokale Belgische ISO-tijden zonder Z/offset. Node zou die
+  // op een UTC-server anders foutief als UTC interpreteren.
+  const belgianLocal = belgiumLocalIsoToDate(text);
+  if (belgianLocal) return belgianLocal;
 
   const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -1475,7 +1524,7 @@ app.get("/api/v4/rail/vehicle", async (req, res) => {
     url.searchParams.set("lang", "nl");
     url.searchParams.set("alerts", "false");
     const data = await cachedJson(`irail:vehicle:${id}:${date}`, 15_000, () => fetchWithTimeout(url.toString(), {
-      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.0 (public-transit-app)" }
+      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.0.2 (public-transit-app)" }
     }, 10_000));
     res.json(data);
   } catch (error) {
@@ -1483,6 +1532,38 @@ app.get("/api/v4/rail/vehicle", async (req, res) => {
     return publicError(res, 503, "Treinrit tijdelijk niet beschikbaar", "RAIL_VEHICLE_UNAVAILABLE");
   }
 });
+
+function nearbyStopBaseName(name) {
+  return sanitizeText(name || "Halte", 140)
+    .replace(/\s+(?:perron|platform|halte)\s+[A-Za-z0-9-]+\s*$/i, "")
+    .trim();
+}
+
+function nearbyHubKey(name) {
+  return normalizeSearchText(nearbyStopBaseName(name))
+    .replace(/\b(station|stationnement)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function departureTimestamp(item) {
+  const date = new Date(item?.realtimeDeparture || item?.plannedDeparture || 0);
+  return Number.isNaN(date.getTime()) ? Number.MAX_SAFE_INTEGER : date.getTime();
+}
+
+function dedupeAndSortDepartures(items, max) {
+  const seen = new Set();
+  return items
+    .filter(item => item?.plannedDeparture || item?.realtimeDeparture)
+    .sort((a, b) => departureTimestamp(a) - departureTimestamp(b))
+    .filter(item => {
+      const key = [item.id, item.line, item.destination, item.realtimeDeparture || item.plannedDeparture, item.bay || item.platform].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, max);
+}
 
 app.get("/api/v4/nearby", async (req, res) => {
   const lat = Number(req.query.lat);
@@ -1498,7 +1579,7 @@ app.get("/api/v4/nearby", async (req, res) => {
   const places = [];
 
   if (delijnResult.status === "fulfilled") {
-    const stops = normalizeStops(delijnResult.value)
+    const candidates = normalizeStops(delijnResult.value)
       .map(stop => ({
         ...stop,
         latitude: Number(stop.latitude),
@@ -1506,39 +1587,51 @@ app.get("/api/v4/nearby", async (req, res) => {
         distanceMeters: Math.round(haversineMeters(lat, lon, stop.latitude, stop.longitude))
       }))
       .filter(stop => Number.isFinite(stop.distanceMeters) && stop.distanceMeters <= radius)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+    // Perrons van hetzelfde knooppunt zijn voor een reiziger één plaats.
+    // Groepeer vóór de limiet zodat vijf perrons niet vijf kaarten innemen.
+    const grouped = new Map();
+    for (const stop of candidates) {
+      const baseName = nearbyStopBaseName(stop.name);
+      const key = normalizeSearchText(baseName) || `${stop.entiteit}-${stop.haltenummer}`;
+      if (!grouped.has(key)) grouped.set(key, { key, name: baseName, stops: [], distanceMeters: stop.distanceMeters });
+      const group = grouped.get(key);
+      group.stops.push(stop);
+      group.distanceMeters = Math.min(group.distanceMeters, stop.distanceMeters);
+    }
+
+    const selectedGroups = [...grouped.values()]
       .sort((a, b) => a.distanceMeters - b.distanceMeters)
       .slice(0, Math.min(maxPlaces, 5));
 
-    const enriched = await mapLimit(stops, 3, async stop => {
-      try {
-        const result = await tryEndpoints(makeStopRealtimeCandidates(stop.entiteit, stop.haltenummer), `nearby ${stop.entiteit}/${stop.haltenummer}`);
-        if (!result.ok) throw new Error("geen realtime");
-        const raw = await enrichDeparturesWithPublicLines(extractDoorkomsten(result.data));
-        return {
-          type: "stop",
-          mode: "bus",
-          id: `${stop.entiteit}-${stop.haltenummer}`,
-          name: stop.name,
-          operator: "De Lijn",
-          distanceMeters: stop.distanceMeters,
-          latitude: stop.latitude,
-          longitude: stop.longitude,
-          departures: raw.map(item => normalizeDeLijnDepartureUnified(item, stop)).filter(item => item.plannedDeparture).slice(0, maxDepartures)
-        };
-      } catch {
-        return {
-          type: "stop",
-          mode: "bus",
-          id: `${stop.entiteit}-${stop.haltenummer}`,
-          name: stop.name,
-          operator: "De Lijn",
-          distanceMeters: stop.distanceMeters,
-          latitude: stop.latitude,
-          longitude: stop.longitude,
-          departures: [],
-          liveUnavailable: true
-        };
-      }
+    const enriched = await mapLimit(selectedGroups, 3, async group => {
+      const stopResults = await mapLimit(group.stops.slice(0, 10), 4, async stop => {
+        try {
+          const result = await tryEndpoints(makeStopRealtimeCandidates(stop.entiteit, stop.haltenummer), `nearby ${stop.entiteit}/${stop.haltenummer}`);
+          if (!result.ok) throw new Error("geen realtime");
+          const raw = await enrichDeparturesWithPublicLines(extractDoorkomsten(result.data));
+          return raw.map(item => normalizeDeLijnDepartureUnified(item, stop));
+        } catch {
+          return [];
+        }
+      });
+      const departures = dedupeAndSortDepartures(stopResults.flat(), maxDepartures);
+      const primary = group.stops[0];
+      return {
+        type: group.stops.length > 1 ? "hub" : "stop",
+        mode: departures.some(item => item.mode === "tram") && departures.some(item => item.mode === "bus") ? "mixed" : (departures[0]?.mode || "bus"),
+        id: `${primary.entiteit}-${primary.haltenummer}`,
+        stopIds: group.stops.map(stop => `${stop.entiteit}-${stop.haltenummer}`),
+        name: group.name,
+        operator: "De Lijn",
+        distanceMeters: group.distanceMeters,
+        latitude: primary.latitude,
+        longitude: primary.longitude,
+        departures,
+        groupedStops: group.stops.length,
+        liveUnavailable: departures.length === 0
+      };
     });
     places.push(...enriched);
   }
@@ -1570,13 +1663,38 @@ app.get("/api/v4/nearby", async (req, res) => {
     }
   }
 
-  places.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  // Combineer een De Lijn-stationscluster en NMBS-station wanneer ze duidelijk
+  // hetzelfde fysieke knooppunt zijn. Zo voelt OVFlow als één vervoerssysteem.
+  const merged = [];
+  for (const place of places.sort((a, b) => a.distanceMeters - b.distanceMeters)) {
+    const key = nearbyHubKey(place.name);
+    const match = merged.find(existing => {
+      if (!key || nearbyHubKey(existing.name) !== key) return false;
+      const distance = haversineMeters(existing.latitude, existing.longitude, place.latitude, place.longitude);
+      return distance <= 450 && existing.operator !== place.operator;
+    });
+    if (!match) {
+      merged.push({ ...place });
+      continue;
+    }
+    match.type = "hub";
+    match.mode = "mixed";
+    match.operator = "De Lijn · NMBS/SNCB";
+    match.name = /station/i.test(match.name) ? match.name : (/station/i.test(place.name) ? place.name : `${match.name} Station`);
+    match.distanceMeters = Math.min(match.distanceMeters, place.distanceMeters);
+    match.departures = dedupeAndSortDepartures([...(match.departures || []), ...(place.departures || [])], maxDepartures);
+    match.stopIds = [...new Set([...(match.stopIds || []), ...(place.stopIds || []), ...(place.type === "stop" || place.type === "hub" ? [place.id] : [])])];
+    if (place.type === "station" || String(place.id).startsWith("BE.NMBS")) match.stationId = place.id;
+  }
+
+  merged.sort((a, b) => a.distanceMeters - b.distanceMeters);
   res.json({
     ok: true,
     source: "ovflow-core",
+    version: "4.0.2",
     location: { lat, lon },
     radius,
-    places: places.slice(0, maxPlaces),
+    places: merged.slice(0, maxPlaces),
     updatedAt: new Date().toISOString()
   });
 });

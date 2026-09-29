@@ -95,6 +95,7 @@
     const m = String(mode || "").toLowerCase();
     if (m === "train") return '<svg viewBox="0 0 24 24"><path d="M7 17V7c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 8h6M8 12h8M7 17h10M9 17l-2 3M15 17l2 3"></path></svg>';
     if (m === "tram") return '<svg viewBox="0 0 24 24"><path d="M8 4h8M12 4V2M7 18V8c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 9h6M8 13h8M9 18l-2 3M15 18l2 3"></path></svg>';
+    if (m === "mixed") return '<svg viewBox="0 0 24 24"><path d="M5 18V8c0-2 2-3 5-3h4c3 0 5 1 5 3v10"></path><path d="M7 9h10M7 13h10M9 18l-2 3M15 18l2 3"></path><path d="M12 5V2M9 2h6"></path></svg>';
     return '<svg viewBox="0 0 24 24"><path d="M6 17V7c0-2 2-3 6-3s6 1 6 3v10"></path><path d="M8 8h8M7 12h10M8 17v2M16 17v2"></path></svg>';
   }
 
@@ -118,7 +119,7 @@
             : "Dienstregeling";
         return `<div class="nearby-departure ${dep.cancelled ? "cancelled" : ""}">
           <span class="mode-line ${esc(dep.mode || place.mode)}">${esc(dep.line || (dep.mode === "train" ? "Trein" : "—"))}</span>
-          <div class="nearby-departure-main"><strong>${esc(dep.destination || "Onbekende richting")}</strong><small>${esc(dep.operator || place.operator || "")}${dep.platform ? ` · spoor ${esc(dep.platform)}` : ""}</small></div>
+          <div class="nearby-departure-main"><strong>${esc(dep.destination || "Onbekende richting")}</strong><small>${esc(dep.operator || place.operator || "")}${dep.platform ? ` · spoor ${esc(dep.platform)}` : ""}${dep.bay ? ` · perron ${esc(dep.bay)}` : ""}</small></div>
           <div class="nearby-departure-time"><strong>${minuteLabel(effective)}</strong><small class="${dep.realtime ? "is-live" : ""}">${esc(liveText)}</small></div>
         </div>`;
       }).join("") : `<div class="nearby-no-departures">${place.liveUnavailable ? "Live gegevens tijdelijk niet beschikbaar" : "Geen komende vertrekken gevonden"}</div>`;
