@@ -50,6 +50,8 @@
     if (options.focusDestination && view === "trips") {
       setTimeout(() => $("#plannerTo")?.focus(), 180);
     }
+
+    document.dispatchEvent(new CustomEvent("ovflow:viewchange", { detail: { view } }));
   }
 
   $$(".bottom-nav .nav-item[data-target]").forEach(btn => {
@@ -243,6 +245,8 @@
       if (active) setView("trips", { keepScroll: true });
     }).observe(liveSession, { attributes: true, attributeFilter: ["class"] });
   }
+
+  window.OVFlowUI = { setView };
 
   renderSaved();
   const initial = location.hash.slice(1);

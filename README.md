@@ -1,7 +1,7 @@
-# OVFlow 4.0 — Foundation
+# OVFlow 4.1 — UX & Performance
 
 OVFlow wordt één geïntegreerde Belgische OV-app voor bus, tram en trein.
-Deze build is de eerste 4.0-herbouw: de homescreen, navigatie en centrale datalaag zijn opnieuw opgezet zonder nep-live-data.
+Deze build bouwt verder op Core 4 en focust op gebruiksvriendelijkheid en veel lagere browserbelasting. De homescreen, routeplanner en live-data blijven zonder nep-live-data werken.
 
 ## Starten
 
@@ -13,7 +13,7 @@ Deze build is de eerste 4.0-herbouw: de homescreen, navigatie en centrale datala
 
 Gebruik HTTPS wanneer je OVFlow op een echte host zet; GPS vereist buiten localhost een veilige context.
 
-## OVFlow Core 4.0
+## OVFlow Core 4.1
 
 De browser bevat geen De Lijn API-sleutels meer. De frontend gebruikt de eigen server als centrale datalaag.
 

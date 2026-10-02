@@ -301,6 +301,86 @@
     return { ok: true, places, compatibility: "legacy", updatedAt: new Date().toISOString() };
   }
 
+  async function searchPlaces(query, max = 10) {
+    const q = String(query || "").trim();
+    if (q.length < 2) return [];
+
+    const capabilities = await detect();
+    if (capabilities.v4) {
+      const url = new URL("/api/v4/search", location.origin);
+      url.searchParams.set("q", q);
+      url.searchParams.set("max", String(Math.min(Math.max(Number(max) || 10, 1), 20)));
+      const { response, data } = await fetchJson(url);
+      if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
+
+      return asArray(data?.results)
+        .filter(item => Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude)))
+        .map(item => ({
+          type: item.type || "stop",
+          mode: item.mode || (item.type === "station" ? "train" : "bus"),
+          id: String(item.id || ""),
+          name: String(item.name || "Onbekende halte"),
+          municipality: String(item.subtitle || item.operator || ""),
+          street: "",
+          entity: String(item.entity || ""),
+          stop: String(item.stopNumber || ""),
+          lat: Number(item.latitude),
+          lon: Number(item.longitude),
+          operator: String(item.operator || "")
+        }));
+    }
+
+    // Legacy fallback: server-side search, never download the full catalogue in the browser.
+    const url = new URL("/api/delijn/search", location.origin);
+    url.searchParams.set("q", q);
+    const { response, data } = await fetchJson(url);
+    if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
+    return asArray(data?.stops || data?.haltes || data?.results)
+      .map(normalizeLegacyStop)
+      .filter(item => Number.isFinite(item.latitude) && Number.isFinite(item.longitude))
+      .slice(0, max)
+      .map(item => ({ ...item, stop: item.stop, entity: item.entity, lat: item.latitude, lon: item.longitude }));
+  }
+
+  async function nearbyStops({ lat, lon, radius = 2500, max = 12 }) {
+    const capabilities = await detect();
+    if (capabilities.v4) {
+      const url = new URL("/api/v4/stops/nearby", location.origin);
+      url.searchParams.set("lat", String(lat));
+      url.searchParams.set("lon", String(lon));
+      url.searchParams.set("radius", String(radius));
+      url.searchParams.set("max", String(max));
+      const { response, data } = await fetchJson(url);
+      if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
+      return asArray(data?.stops).map(stop => ({
+        type: "stop",
+        mode: stop.mode || "bus",
+        id: String(stop.id || ""),
+        name: String(stop.name || "Halte"),
+        municipality: "",
+        street: "",
+        entity: String(stop.entity || ""),
+        stop: String(stop.stopNumber || ""),
+        lat: Number(stop.latitude),
+        lon: Number(stop.longitude),
+        distanceMeters: Number(stop.distanceMeters || 0),
+        distanceKm: Number(stop.distanceMeters || 0) / 1000,
+        operator: String(stop.operator || "De Lijn")
+      }));
+    }
+
+    const legacy = new URL("/api/delijn/nearby", location.origin);
+    legacy.searchParams.set("lat", String(lat));
+    legacy.searchParams.set("lon", String(lon));
+    legacy.searchParams.set("radius", String(radius));
+    legacy.searchParams.set("max", String(Math.min(max, 12)));
+    const { response, data } = await fetchJson(legacy);
+    if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
+    return asArray(data?.stops || data?.haltes)
+      .map(normalizeLegacyStop)
+      .map(stop => ({ ...stop, stop: stop.stop, entity: stop.entity, lat: stop.latitude, lon: stop.longitude, distanceKm: Number(stop.distanceMeters || 0) / 1000 }));
+  }
+
   async function health(force = false) {
     const capabilities = await detect(force);
     return {
@@ -309,5 +389,5 @@
     };
   }
 
-  window.OVFlowCore = { detect, health, stopDepartures, nearby, fetchJson };
+  window.OVFlowCore = { detect, health, stopDepartures, nearby, nearbyStops, searchPlaces, fetchJson };
 })();

@@ -16,6 +16,8 @@
     stopsLoading: false,
     stopsLoaded: false,
     map: null,
+    mapReadyPromise: null,
+    mapLibraryPromise: null,
     markers: [],
     selectedMarker: null,
     userLocation: null
@@ -547,42 +549,96 @@
   });
 
   // ---------- MapLibre / OpenStreetMap ----------
+  // MapLibre en kaarttiles worden pas geladen wanneer de gebruiker de kaart opent.
+  // Zo betaalt Home/Reizen niet voor een kaart die niet zichtbaar is.
+  function ensureMapLibrary() {
+    if (window.maplibregl) return Promise.resolve(window.maplibregl);
+    if (state.mapLibraryPromise) return state.mapLibraryPromise;
 
-  function initMap() {
-    if (!window.maplibregl) {
-      $("#mapLoading").innerHTML = "<span>Kaartbibliotheek kon niet laden.</span>";
-      return;
-    }
-
-    const center = state.stop?.lon && state.stop?.lat ? [Number(state.stop.lon), Number(state.stop.lat)] : [4.35, 50.85];
-    const zoom = state.stop?.lon ? 14 : 8;
-
-    state.map = new maplibregl.Map({
-      container: "ovMap",
-      center,
-      zoom,
-      attributionControl: true,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: [
-              "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-              "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-              "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            ],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors"
-          }
-        },
-        layers: [{ id: "osm", type: "raster", source: "osm" }]
+    state.mapLibraryPromise = new Promise((resolve, reject) => {
+      if (!document.querySelector('link[data-ovflow-maplibre]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css';
+        link.dataset.ovflowMaplibre = '1';
+        document.head.appendChild(link);
       }
+
+      const existing = document.querySelector('script[data-ovflow-maplibre]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(window.maplibregl), { once: true });
+        existing.addEventListener('error', () => reject(new Error('Kaartbibliotheek kon niet laden.')), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js';
+      script.async = true;
+      script.dataset.ovflowMaplibre = '1';
+      script.onload = () => resolve(window.maplibregl);
+      script.onerror = () => reject(new Error('Kaartbibliotheek kon niet laden.'));
+      document.head.appendChild(script);
+    }).catch(error => {
+      state.mapLibraryPromise = null;
+      throw error;
     });
 
-    state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    state.map.on("load", () => {
-      $("#mapLoading").classList.add("hidden");
+    return state.mapLibraryPromise;
+  }
+
+  async function initMap() {
+    if (state.map) return state.map;
+    if (state.mapReadyPromise) return state.mapReadyPromise;
+
+    state.mapReadyPromise = (async () => {
+      const loading = $("#mapLoading");
+      loading?.classList.remove("hidden");
+      if (loading) loading.innerHTML = '<div class="spinner"></div><span>Kaart laden…</span>';
+
+      await ensureMapLibrary();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const center = state.stop?.lon && state.stop?.lat
+        ? [Number(state.stop.lon), Number(state.stop.lat)]
+        : [4.35, 50.85];
+      const zoom = state.stop?.lon ? 14 : 8;
+
+      const map = new maplibregl.Map({
+        container: "ovMap",
+        center,
+        zoom,
+        attributionControl: true,
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: [
+                "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              ],
+              tileSize: 256,
+              attribution: "© OpenStreetMap contributors"
+            }
+          },
+          layers: [{ id: "osm", type: "raster", source: "osm" }]
+        }
+      });
+
+      state.map = map;
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+
+      await new Promise((resolve, reject) => {
+        map.once("load", resolve);
+        map.once("error", event => {
+          // Raster tile-errors mogen de hele kaart niet blokkeren.
+          if (!map.loaded()) return;
+          reject(event?.error || new Error("Kaart kon niet laden."));
+        });
+      });
+
+      loading?.classList.add("hidden");
       if (state.stop?.lon && state.stop?.lat) {
         focusMapOnStop({
           name: state.stop.name,
@@ -593,7 +649,17 @@
           municipality: ""
         });
       }
+      return map;
+    })().catch(error => {
+      state.mapReadyPromise = null;
+      if (!state.map) {
+        const loading = $("#mapLoading");
+        if (loading) loading.innerHTML = `<span>${escapeHTML(error.message || "Kaart kon niet laden.")}</span>`;
+      }
+      throw error;
     });
+
+    return state.mapReadyPromise;
   }
 
   function clearMarkers() {
@@ -659,18 +725,27 @@
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
 
-  async function showNearbyStops(lon, lat, count = 35) {
+  async function showNearbyStops(lon, lat, count = 20) {
     try {
-      await ensureStopsLoaded();
-      const nearby = state.stops
-        .map(stop => ({ ...stop, distance: haversine(lon, lat, stop.lon, stop.lat) }))
-        .sort((a,b) => a.distance-b.distance)
-        .slice(0, count);
+      let nearby;
+      if (core?.nearbyStops) {
+        nearby = await core.nearbyStops({ lat, lon, radius: 5000, max: Math.min(count, 25) });
+      } else {
+        await ensureStopsLoaded();
+        nearby = state.stops
+          .map(stop => ({ ...stop, distance: haversine(lon, lat, stop.lon, stop.lat) }))
+          .sort((a,b) => a.distance-b.distance)
+          .slice(0, count);
+      }
       showStopsOnMap(nearby, true);
-    } catch {}
+    } catch (error) {
+      console.error("OVFlow kaart haltes:", error);
+      toast("Haltes rond deze locatie konden niet laden");
+    }
   }
 
   $("#nearbyButton").addEventListener("click", async () => {
+    try { await initMap(); } catch { return; }
     if (!navigator.geolocation) {
       toast("Locatie is niet beschikbaar in deze browser");
       return;
@@ -687,10 +762,11 @@
     }, () => {
       $("#mapLoading").classList.add("hidden");
       toast("Locatie kon niet worden bepaald");
-    }, { enableHighAccuracy:true, timeout:10000 });
+    }, { enableHighAccuracy:false, timeout:8000, maximumAge:60000 });
   });
 
   $("#fitStopsButton").addEventListener("click", async () => {
+    try { await initMap(); } catch { return; }
     if (state.stop?.lon && state.stop?.lat) {
       await showNearbyStops(Number(state.stop.lon), Number(state.stop.lat), 40);
     } else {
@@ -699,13 +775,24 @@
     }
   });
 
+  function legacyDeparturesVisible() {
+    const panel = document.querySelector(".departures-panel");
+    return Boolean(
+      panel &&
+      !panel.classList.contains("ov-view-hidden") &&
+      document.visibilityState === "visible"
+    );
+  }
+
   function setupAutoRefresh() {
     clearInterval(state.timer);
+    state.timer = null;
+    const active = state.autoRefresh && legacyDeparturesVisible() && Boolean(state.stop?.stop);
     $("#autoRefreshButton").classList.toggle("off", !state.autoRefresh);
-    $("#autoRefreshLabel").textContent = state.autoRefresh ? "Elke 15 sec" : "Uit";
-    $("#refreshState").textContent = state.autoRefresh ? "Actief" : "Uit";
-    $("#refreshState").className = state.autoRefresh ? "state-ok" : "";
-    if (state.autoRefresh) state.timer = setInterval(fetchLive, Number(cfg.AUTO_REFRESH_MS || 15000));
+    $("#autoRefreshLabel").textContent = active ? "Elke 15 sec" : state.autoRefresh ? "Slim" : "Uit";
+    $("#refreshState").textContent = active ? "Actief" : state.autoRefresh ? "Gepauzeerd" : "Uit";
+    $("#refreshState").className = active ? "state-ok" : "";
+    if (active) state.timer = setInterval(fetchLive, Number(cfg.AUTO_REFRESH_MS || 15000));
   }
 
   function openSettings() {
@@ -821,8 +908,11 @@
 
 
 
-  function showPlannerRouteOnMap(itinerary) {
-    if (!state.map || !itinerary) return;
+  async function showPlannerRouteOnMap(itinerary) {
+    if (!itinerary) return;
+    window.OVFlowUI?.setView?.("map");
+    try { await initMap(); } catch { return; }
+
     const coords = [];
     for (const leg of itinerary.legs || []) {
       if (leg.type === "transit" && Array.isArray(leg.coordinates)) {
@@ -831,7 +921,10 @@
         }
       }
     }
-    if (coords.length < 2) return;
+    if (coords.length < 2) {
+      toast("Voor deze route is geen kaartlijn beschikbaar");
+      return;
+    }
 
     const data = { type:"Feature", properties:{}, geometry:{ type:"LineString", coordinates:coords } };
     if (state.map.getSource("ovflow-planner-route")) {
@@ -850,7 +943,6 @@
     const bounds = new maplibregl.LngLatBounds();
     coords.forEach(c => bounds.extend(c));
     state.map.fitBounds(bounds, { padding:65, maxZoom:15.5, duration:750 });
-    document.querySelector(".real-map-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
   }
 
   function clearPlannerRouteOnMap() {
@@ -949,9 +1041,10 @@
     }
   }
 
-  function focusLiveTripMap(payload = {}) {
+  async function focusLiveTripMap(payload = {}) {
+    window.OVFlowUI?.setView?.("map");
+    try { await initMap(); } catch { return; }
     updateLiveTripMap({ ...payload, follow: true });
-    document.querySelector(".real-map-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function clearLiveTripMap() {
@@ -1030,13 +1123,19 @@
   updateClock();
   setInterval(updateClock, 1000);
   setupAutoRefresh();
-  initMap();
   checkCoreHealth();
   setInterval(checkCoreHealth, 60_000);
 
-  // Als er al een halte uit v3 opgeslagen is, laad die meteen.
-  if (state.stop?.stop) fetchLive();
-  else {
+  document.addEventListener("ovflow:viewchange", event => {
+    setupAutoRefresh();
+    if (event.detail?.view === "map") {
+      initMap().catch(error => console.error("OVFlow kaart:", error));
+    }
+  });
+  document.addEventListener("visibilitychange", setupAutoRefresh);
+
+  // Legacy halte-data wordt niet meer onzichtbaar op de achtergrond opgehaald.
+  if (!state.stop?.stop) {
     $("#loadingCard").classList.add("hidden");
     $("#emptyCard").classList.remove("hidden");
     $("#emptyCard strong").textContent = "Zoek een halte";

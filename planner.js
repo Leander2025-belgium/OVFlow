@@ -2,6 +2,7 @@
   "use strict";
 
   const bridge = window.OVFlowBridge;
+  const core = window.OVFlowCore;
   const $ = s => document.querySelector(s);
 
   if (!bridge) {
@@ -58,6 +59,39 @@
     const input = $(inputSel);
     const box = $(resultsSel);
     let timer;
+    let requestId = 0;
+
+    async function runSearch() {
+      const q = input.value.trim();
+      if (q.length < 2) {
+        box.classList.add("hidden");
+        return;
+      }
+
+      const id = ++requestId;
+      try {
+        let results = [];
+        if (core?.searchPlaces) {
+          results = await core.searchPlaces(q, 10);
+        } else {
+          await bridge.ensureStopsLoaded();
+          results = bridge.searchStops(q).slice(0, 10);
+        }
+        if (id !== requestId || input.value.trim() !== q) return;
+        renderSuggestions(box, results, side);
+      } catch (e) {
+        if (id !== requestId) return;
+        box.innerHTML = `
+          <div class="planner-suggestion">
+            <span class="planner-suggestion-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5M12 16h.01"></path></svg></span>
+            <span>
+              <strong>Zoeken mislukt</strong>
+              <small>${esc(e.message || "Haltes konden niet worden geladen")}</small>
+            </span>
+          </div>`;
+        box.classList.remove("hidden");
+      }
+    }
 
     input.addEventListener("input", () => {
       if (side === "from") {
@@ -68,38 +102,16 @@
       }
 
       clearTimeout(timer);
-      const q = input.value.trim();
-
-      if (q.length < 2) {
+      if (input.value.trim().length < 2) {
+        requestId += 1;
         box.classList.add("hidden");
         return;
       }
-
-      timer = setTimeout(async () => {
-        try {
-          await bridge.ensureStopsLoaded();
-          renderSuggestions(box, bridge.searchStops(q).slice(0, 10), side);
-        } catch (e) {
-          box.innerHTML = `
-            <div class="planner-suggestion">
-              <span class="planner-suggestion-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5M12 16h.01"></path></svg></span>
-              <span>
-                <strong>Zoeken mislukt</strong>
-                <small>${esc(e.message || "Haltes konden niet worden geladen")}</small>
-              </span>
-            </div>`;
-          box.classList.remove("hidden");
-        }
-      }, 180);
+      timer = setTimeout(runSearch, 280);
     });
 
-    input.addEventListener("focus", async () => {
-      const q = input.value.trim();
-      if (q.length < 2) return;
-      try {
-        await bridge.ensureStopsLoaded();
-        renderSuggestions(box, bridge.searchStops(q).slice(0, 10), side);
-      } catch {}
+    input.addEventListener("focus", () => {
+      if (input.value.trim().length >= 2) runSearch();
     });
   }
 
@@ -177,23 +189,27 @@
 
     navigator.geolocation.getCurrentPosition(async pos => {
       try {
-        await bridge.ensureStopsLoaded();
-        const lon = pos.coords.longitude;
-        const lat = pos.coords.latitude;
+        const lon = Number(pos.coords.longitude);
+        const lat = Number(pos.coords.latitude);
+        let candidates = [];
 
-        const nearest = bridge.getStops()
-          .map(s => ({ ...s, d: haversine(lon, lat, s.lon, s.lat) }))
-          .sort((a, b) => a.d - b.d)[0];
+        if (core?.nearbyStops) {
+          candidates = await core.nearbyStops({ lat, lon, radius: 3000, max: 8 });
+        } else {
+          await bridge.ensureStopsLoaded();
+          candidates = bridge.getStops()
+            .map(s => ({ ...s, distanceKm: haversine(lon, lat, s.lon, s.lat) }))
+            .sort((a, b) => a.distanceKm - b.distanceKm)
+            .slice(0, 8);
+        }
 
+        const nearest = candidates[0];
         if (!nearest) throw new Error("Geen halte gevonden");
 
         chooseStop("from", nearest);
-
-        // De echte locatie wordt gebruikt als beginpunt, zodat de wandelroute
-        // naar de halte automatisch in het reisadvies kan zitten.
         planner.from.routeLat = lat;
         planner.from.routeLon = lon;
-        planner.from.walkKm = nearest.d;
+        planner.from.walkKm = Number(nearest.distanceKm ?? haversine(lon, lat, nearest.lon, nearest.lat));
         planner.geolocationOrigin = true;
         toast(`Vertrek vanaf je locatie via ${nearest.name}`);
       } catch (e) {
@@ -204,8 +220,9 @@
       $("#plannerFrom").value = "";
       toast("Locatie kon niet worden bepaald");
     }, {
-      enableHighAccuracy: true,
-      timeout: 10000
+      enableHighAccuracy: false,
+      timeout: 8000,
+      maximumAge: 60000
     });
   }
 

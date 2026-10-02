@@ -7,7 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
-const APP_VERSION = "OVFlow-4.0.1";
+const APP_VERSION = "OVFlow-4.1.0";
 const DATA_DIR = path.join(__dirname, "data");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -448,7 +448,7 @@ async function callIrailStations() {
     return fetchWithTimeout(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.0.2 (public-transit-app)"
+        "User-Agent": "OVFlow/4.1.0 (public-transit-app)"
       }
     }, 10_000);
   });
@@ -482,7 +482,7 @@ async function callIrailLiveboard(stationId, max = 8) {
     return fetchWithTimeout(url.toString(), {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.0.2 (public-transit-app)"
+        "User-Agent": "OVFlow/4.1.0 (public-transit-app)"
       }
     }, 10_000);
   }).then(data => {
@@ -580,7 +580,7 @@ async function fetchTransitous(pathname, searchParams, ttlMs = 15_000) {
   return cachedJson(key, ttlMs, () => fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
-      "User-Agent": "OVFlow/4.0.2 (public-transit-app)"
+      "User-Agent": "OVFlow/4.1.0 (public-transit-app)"
     }
   }, 20_000));
 }
@@ -1389,7 +1389,7 @@ async function fetchByAbsoluteDeLijnUrl(url) {
   });
 }
 
-// OVFlow 4.0 Core: one normalized data layer for the frontend.
+// OVFlow 4.1 Core: one normalized data layer for the frontend.
 app.get("/api/v4/health", (req, res) => {
   res.json({
     ok: true,
@@ -1469,6 +1469,54 @@ app.get("/api/v4/search", async (req, res) => {
   res.json({ ok: true, query: q, results: results.slice(0, max * 2) });
 });
 
+app.get("/api/v4/stops/nearby", async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lon = Number(req.query.lon);
+  const radius = Math.min(Math.max(Number(req.query.radius || 2500) || 2500, 250), 10000);
+  const max = Math.min(Math.max(Number(req.query.max || 12) || 12, 1), 25);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return publicError(res, 400, "Geef geldige lat en lon mee.", "INVALID_LOCATION");
+  }
+
+  try {
+    const stops = normalizeStops(await getAllStops())
+      .map(stop => ({
+        type: "stop",
+        mode: "bus",
+        id: `${stop.entiteit}-${stop.haltenummer}`,
+        entity: String(stop.entiteit || ""),
+        stopNumber: String(stop.haltenummer || ""),
+        name: stop.name,
+        operator: "De Lijn",
+        latitude: Number(stop.latitude),
+        longitude: Number(stop.longitude),
+        distanceMeters: Math.round(haversineMeters(lat, lon, stop.latitude, stop.longitude))
+      }))
+      .filter(stop =>
+        Number.isFinite(stop.latitude) &&
+        Number.isFinite(stop.longitude) &&
+        Number.isFinite(stop.distanceMeters) &&
+        stop.distanceMeters <= radius
+      )
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)
+      .slice(0, max);
+
+    res.json({
+      ok: true,
+      source: "ovflow-core",
+      version: "4.1.0",
+      location: { lat, lon },
+      radius,
+      stops,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("OVFlow nearby stops:", error);
+    publicError(res, 502, "Haltes in de buurt konden niet worden geladen.", "NEARBY_STOPS_UNAVAILABLE");
+  }
+});
+
 app.get("/api/v4/stops/:stopId/departures", async (req, res) => {
   const match = sanitizeText(req.params.stopId, 80).match(/^(\d{1,3})[-:/](\d{1,8})$/);
   const max = Math.min(Math.max(Number(req.query.max || 8) || 8, 1), 20);
@@ -1524,7 +1572,7 @@ app.get("/api/v4/rail/vehicle", async (req, res) => {
     url.searchParams.set("lang", "nl");
     url.searchParams.set("alerts", "false");
     const data = await cachedJson(`irail:vehicle:${id}:${date}`, 15_000, () => fetchWithTimeout(url.toString(), {
-      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.0.2 (public-transit-app)" }
+      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.1.0 (public-transit-app)" }
     }, 10_000));
     res.json(data);
   } catch (error) {
@@ -1691,7 +1739,7 @@ app.get("/api/v4/nearby", async (req, res) => {
   res.json({
     ok: true,
     source: "ovflow-core",
-    version: "4.0.2",
+    version: "4.1.0",
     location: { lat, lon },
     radius,
     places: merged.slice(0, maxPlaces),

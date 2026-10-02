@@ -2,6 +2,7 @@
   "use strict";
 
   const bridge = window.OVFlowBridge;
+  const core = window.OVFlowCore;
   const plannerBridge = window.OVFlowPlannerBridge;
   const cfg = window.OVFLOW_CONFIG || {};
   const $ = s => document.querySelector(s);
@@ -109,8 +110,16 @@
   }
 
   async function nearestStops(position) {
-    await bridge.ensureStopsLoaded();
+    if (core?.nearbyStops) {
+      return core.nearbyStops({
+        lat: position.lat,
+        lon: position.lon,
+        radius: 2500,
+        max: 12
+      });
+    }
 
+    await bridge.ensureStopsLoaded();
     return bridge.getStops()
       .filter(stop =>
         Number.isFinite(Number(stop.lat)) &&
@@ -242,16 +251,28 @@
     return [...new Set(variants)];
   }
 
-  function findDestinationStops(destination, fromStop) {
+  async function findDestinationStops(destination, fromStop) {
     const collected = [];
 
     for (const query of destinationQueries(destination)) {
-      for (const stop of bridge.searchStops(query).slice(0, 8)) {
+      let matches = [];
+      try {
+        if (core?.searchPlaces) matches = await core.searchPlaces(query, 8);
+        else {
+          await bridge.ensureStopsLoaded();
+          matches = bridge.searchStops(query).slice(0, 8);
+        }
+      } catch {
+        matches = [];
+      }
+
+      for (const stop of matches) {
+        if (!Number.isFinite(Number(stop.lon)) || !Number.isFinite(Number(stop.lat))) continue;
         const distance = haversine(fromStop.lon, fromStop.lat, stop.lon, stop.lat);
         if (distance < 0.25) continue;
 
-        const key = stop.stop || `${stop.name}|${stop.lon}|${stop.lat}`;
-        if (!collected.some(x => (x.stop || `${x.name}|${x.lon}|${x.lat}`) === key)) {
+        const key = stop.stop || stop.id || `${stop.name}|${stop.lon}|${stop.lat}`;
+        if (!collected.some(x => (x.stop || x.id || `${x.name}|${x.lon}|${x.lat}`) === key)) {
           collected.push({ ...stop, routeDistance: distance });
         }
       }
@@ -276,9 +297,7 @@
   }
 
   async function findTransitLegForCandidate(candidate) {
-    await bridge.ensureStopsLoaded();
-
-    const destinations = findDestinationStops(candidate.dep.destination, candidate.stop);
+    const destinations = await findDestinationStops(candidate.dep.destination, candidate.stop);
     if (!destinations.length) {
       throw new Error(`Eindhalte “${candidate.dep.destination}” kon niet op de kaart worden gevonden.`);
     }
