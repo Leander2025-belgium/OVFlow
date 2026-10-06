@@ -180,7 +180,7 @@
         maxDepartures: 3
       });
       renderNearby(data.places || []);
-      const sourceText = data.compatibility === "legacy" ? "compatibele live-bronnen" : "OVFlow Core 4";
+      const sourceText = data.source || "Transitous / MOTIS";
       setNearbyState("ready", "Dichtbij bijgewerkt", `${(data.places || []).length} haltes en stations · ${sourceText}`);
       const locateButton = $("#nearbyLocateButton");
       if (locateButton) locateButton.textContent = "Vernieuw";

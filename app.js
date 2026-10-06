@@ -63,12 +63,12 @@
     $("#insightApi").textContent = text;
 
     if (type === "online") {
-      $("#coreApiState").textContent = "Verbonden";
+      $("#coreApiState").textContent = "Open data";
       $("#coreApiState").className = "state-ok";
       $("#stopApiState").textContent = "Live";
       $("#stopApiState").className = "state-ok";
     } else if (type === "error") {
-      $("#coreApiState").textContent = "Fout";
+      $("#coreApiState").textContent = "Offline";
       $("#coreApiState").className = "state-error";
       $("#stopApiState").textContent = "Niet beschikbaar";
       $("#stopApiState").className = "state-error";
@@ -87,10 +87,8 @@
       ? `De Lijn halte ${state.stop.stop}${state.stop.entity ? ` · entiteit ${state.stop.entity}` : ""}`
       : "Zoek hierboven om live doorkomsten te zien";
 
-    $("#stopNameInput").value = state.stop.name || "";
-    $("#entityInput").value = state.stop.entity || "";
-    $("#stopNumberInput").value = state.stop.stop || "";
-    $("#maxDeparturesSelect").value = String(state.stop.maxDepartures || 6);
+    const maxSelect = $("#maxDeparturesSelect");
+    if (maxSelect) maxSelect.value = String(state.stop.maxDepartures || 6);
   }
 
   function parseDate(raw) {
@@ -224,24 +222,8 @@
   }
 
   async function resolveEntityIfNeeded() {
-    if (state.stop.entity) return;
-    const digits = String(state.stop.stop || "").replace(/\D/g, "");
-    if (digits.length >= 6) {
-      state.stop.entity = digits[0];
-      return;
-    }
-
-    // Fallback via OVFlow Core: API-sleutels blijven server-side.
-    const url = new URL("/api/delijn/haltes", location.origin);
-    url.searchParams.set("q", state.stop.stop);
-    url.searchParams.set("max", "5");
-    const response = await fetch(url.toString(), { headers: { "Accept": "application/json" }, cache: "no-store" });
-    if (!response.ok) throw new Error(`OVFlow Core HTTP ${response.status}`);
-    const detail = await response.json();
-    const match = (detail?.stops || detail?.haltes || []).find(item =>
-      String(item.haltenummer || item.stop || "").replace(/\D/g, "") === digits
-    );
-    state.stop.entity = String(match?.entiteit || match?.entiteitnummer || "").trim();
+    // OVFlow 4.2 gebruikt coördinaten/Transitous-id's en heeft geen De Lijn-entiteitnummer nodig.
+    return;
   }
 
   async function fetchLive() {
@@ -267,10 +249,8 @@
 
     try {
       await resolveEntityIfNeeded();
-      if (!state.stop.entity) throw new Error("Geen entiteitnummer voor deze halte gevonden");
-
-      if (!core) throw new Error("OVFlow Core-client ontbreekt");
-      const data = await core.stopDepartures(state.stop.entity, state.stop.stop, Number(state.stop.maxDepartures || 6));
+      if (!core) throw new Error("OVFlow dataclient ontbreekt");
+      const data = await core.stopDepartures(state.stop, Number(state.stop.maxDepartures || 6));
       const departures = (data.departures || []).map(item => ({
         line: item.line || "—",
         destination: item.destination || "Onbekende richting",
@@ -284,7 +264,7 @@
       $("#loadingCard").classList.add("hidden");
       renderDepartures(departures);
       $("#lastUpdated").textContent = `${formatTime(new Date())} live`;
-      setApiState("online", "De Lijn live");
+      setApiState("online", "Open data live");
     } catch (error) {
       console.error("OVFlow live error:", error);
       $("#loadingCard").classList.add("hidden");
@@ -299,10 +279,10 @@
       $("#insightNextMeta").textContent = message;
       try {
         const health = await core?.health();
-        if (health?.ok) setApiState("online", "Core online");
-        else setApiState("error", "Core offline");
+        if (health?.ok) setApiState("online", "Open data klaar");
+        else setApiState("error", "Offline");
       } catch {
-        setApiState("error", "Core offline");
+        setApiState("error", "Offline");
       }
     } finally {
       state.loading = false;
@@ -499,7 +479,9 @@
     state.stop = {
       name: [stop.municipality, stop.name].filter(Boolean).join(" · "),
       entity: stop.entity || (/^\d{6,7}$/.test(stop.stop) ? stop.stop[0] : ""),
-      stop: stop.stop,
+      stop: stop.stop || stop.id || stop.transitousId || "",
+      id: stop.id || stop.transitousId || "",
+      transitousId: stop.transitousId || stop.id || "",
       lat: stop.lat,
       lon: stop.lon,
       maxDepartures: Number(state.stop.maxDepartures || 6)
@@ -832,23 +814,14 @@
   $("#sheetBackdrop").addEventListener("click", closeSettings);
 
   $("#saveSettings").addEventListener("click", () => {
-    const entity = $("#entityInput").value.trim();
-    const stop = $("#stopNumberInput").value.trim();
-    if (!stop || !/^\d+$/.test(stop)) {
-      toast("Vul een geldig haltenummer in");
-      return;
-    }
     state.stop = {
       ...state.stop,
-      name: $("#stopNameInput").value.trim() || `Halte ${stop}`,
-      entity: entity.replace(/\D/g, ""),
-      stop,
-      maxDepartures: Number($("#maxDeparturesSelect").value || 6)
+      maxDepartures: Number($("#maxDeparturesSelect")?.value || 6)
     };
     saveStop();
     updateStopUI();
     closeSettings();
-    fetchLive();
+    toast("Instellingen opgeslagen");
   });
 
   $$(".nav-item[data-target]").forEach(button => {
@@ -1065,17 +1038,10 @@
 
 
   async function fetchDeparturesForStop(stop, max = 12) {
-    if (!stop?.stop) return [];
+    if (!stop) return [];
+    if (!core) throw new Error("OVFlow dataclient ontbreekt");
 
-    let entity = String(stop.entity || "").replace(/\D/g, "");
-    const stopNumber = String(stop.stop || "").replace(/\D/g, "");
-
-    if (!entity && /^\d{6,7}$/.test(stopNumber)) entity = stopNumber[0];
-    if (!entity || !stopNumber) return [];
-
-    if (!core) throw new Error("OVFlow Core-client ontbreekt");
-    const data = await core.stopDepartures(entity, stopNumber, max);
-
+    const data = await core.stopDepartures(stop, max);
     return (data.departures || []).map(item => ({
       line: item.line || "—",
       destination: item.destination || "Onbekende richting",
@@ -1089,18 +1055,18 @@
 
   async function checkCoreHealth() {
     if (!core) {
-      setApiState("error", "Core offline");
+      setApiState("error", "Offline");
       return;
     }
     try {
       const status = await core.health(true);
       if (status.ok) {
-        setApiState("online", status.mode === "v4" ? "Core 4 online" : "Core online");
+        setApiState("online", "Open data klaar");
       } else {
-        setApiState("error", "Core offline");
+        setApiState("error", "Offline");
       }
     } catch {
-      setApiState("error", "Core offline");
+      setApiState("error", "Offline");
     }
   }
 

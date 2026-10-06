@@ -1,11 +1,15 @@
 {
-  "name": "OVFlow 2.1",
+  "name": "OVFlow 4.2",
   "short_name": "OVFlow",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#061019",
-  "theme_color": "#06131d",
-  "description": "Plan en volg bus, tram en trein live in België."
+  "background_color": "#F3FAFF",
+  "theme_color": "#F3FAFF",
+  "description": "Plan en volg bus, tram en trein met actuele open vervoersdata in België.",
+  "icons": [
+    { "src": "ovflow-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "ovflow-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
 }

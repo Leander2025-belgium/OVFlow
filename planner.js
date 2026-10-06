@@ -10,8 +10,8 @@
     return;
   }
 
-  const API = new URL("/api/v4/journeys", location.origin).toString();
-  const IRAIL_API = new URL("/api/v4/rail", location.origin).toString();
+  const API = "https://api.transitous.org/api/v6/plan";
+  const IRAIL_API = "https://api.irail.be";
 
   const planner = {
     from: null,
@@ -153,7 +153,9 @@
       name: stop.name || "",
       municipality: stop.municipality || "",
       street: stop.street || "",
-      stop: String(stop.stop || ""),
+      stop: String(stop.stop || stop.id || stop.transitousId || ""),
+      id: String(stop.id || stop.transitousId || ""),
+      transitousId: String(stop.transitousId || stop.id || ""),
       entity: String(stop.entity || ""),
       lon: Number(stop.lon),
       lat: Number(stop.lat)
@@ -784,27 +786,18 @@
     let lastError = null;
     for (const id of candidates) {
       try {
-        const proxyUrl = new URL(`${IRAIL_API}/vehicle`);
-        proxyUrl.searchParams.set("id", id);
-        proxyUrl.searchParams.set("date", yymmddForIRail(leg.start));
-        proxyUrl.searchParams.set("format", "json");
-        proxyUrl.searchParams.set("lang", "nl");
-        proxyUrl.searchParams.set("alerts", "true");
+        const directUrl = new URL(`${IRAIL_API}/vehicle/`);
+        directUrl.searchParams.set("id", id);
+        directUrl.searchParams.set("date", yymmddForIRail(leg.start));
+        directUrl.searchParams.set("format", "json");
+        directUrl.searchParams.set("lang", "nl");
+        directUrl.searchParams.set("alerts", "true");
 
-        const directUrl = new URL("https://api.irail.be/vehicle/");
-        directUrl.search = proxyUrl.search;
-
-        let response = await fetch(proxyUrl.toString(), {
+        const response = await fetch(directUrl.toString(), {
+          mode: "cors",
           headers: { "Accept": "application/json" },
           cache: "no-store"
         });
-        if (response.status === 404) {
-          response = await fetch(directUrl.toString(), {
-            mode: "cors",
-            headers: { "Accept": "application/json" },
-            cache: "no-store"
-          });
-        }
 
         if (!response.ok) {
           lastError = new Error(`iRail HTTP ${response.status}`);
@@ -1965,23 +1958,14 @@
     // live.stops is the LOCKED segment the user selected when Live Trip started.
     // A realtime refresh is NEVER allowed to replace this array or alter its length/order.
     try {
-      const url = new URL("/api/v4/trips/live", location.origin);
+      const url = new URL("https://api.transitous.org/api/v6/trip");
       url.searchParams.set("tripId", live.leg.tripId);
 
-      let response = await fetch(url.toString(), {
+      const response = await fetch(url.toString(), {
+        mode: "cors",
         headers: { "Accept": "application/json" },
         cache: "no-store"
       });
-
-      if (response.status === 404) {
-        const direct = new URL("https://api.transitous.org/api/v6/trip");
-        direct.searchParams.set("tripId", live.leg.tripId);
-        response = await fetch(direct.toString(), {
-          mode: "cors",
-          headers: { "Accept": "application/json" },
-          cache: "no-store"
-        });
-      }
       if (!response.ok) return;
 
       const data = await response.json();
@@ -2527,14 +2511,6 @@
       fallbackUrl.searchParams.set("maxPostTransitTime", "3600");
       requestUrls.push(fallbackUrl);
 
-      // Compatibiliteit: wanneer de server nog OVFlow Core 3 draait, bestaan
-      // /api/v4-routes nog niet. Gebruik dan tijdelijk dezelfde Transitous-
-      // aanvragen rechtstreeks, zodat een frontend-update nooit de planner breekt.
-      const directPrimary = new URL("https://api.transitous.org/api/v6/plan");
-      directPrimary.search = primaryUrl.search;
-      const directFallback = new URL("https://api.transitous.org/api/v6/plan");
-      directFallback.search = fallbackUrl.search;
-      requestUrls.push(directPrimary, directFallback);
 
       let response = null;
       let data = null;

@@ -1,72 +1,78 @@
 (() => {
   "use strict";
 
+  /*
+   * OVFlow 4.2 public-data client
+   *
+   * Important design rule: the browser must work on static hosting too.
+   * Therefore this client does NOT probe /api/* endpoints by default.
+   * Transitous/MOTIS is used directly for Belgian stop search, departures,
+   * nearby places and journey data. iRail stays available in planner.js for
+   * NMBS vehicle details.
+   */
+
+  const cfg = window.OVFLOW_CONFIG || {};
+  const TRANSITOUS_BASE = String(cfg.TRANSITOUS_BASE || "https://api.transitous.org").replace(/\/$/, "");
   const JSON_HEADERS = { Accept: "application/json" };
-  const state = {
-    checked: false,
-    v4: null,
-    legacy: null,
-    lastCheck: 0
-  };
+  const cache = new Map();
 
   function asArray(value) {
     if (Array.isArray(value)) return value;
     return value == null ? [] : [value];
   }
 
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, Number(value) || min));
+  }
+
+  function timeoutSignal(ms = 12000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return { controller, clear: () => clearTimeout(timer) };
+  }
+
   async function fetchJson(url, options = {}) {
-    const response = await fetch(url, {
-      cache: "no-store",
-      ...options,
-      headers: { ...JSON_HEADERS, ...(options.headers || {}) }
-    });
-    let data = null;
-    try { data = await response.json(); } catch {}
-    return { response, data };
-  }
-
-  async function detect(force = false) {
-    if (!force && state.checked && Date.now() - state.lastCheck < 60_000) return { ...state };
-    state.lastCheck = Date.now();
-
+    const { timeout = 12000, ...fetchOptions } = options;
+    const timeoutState = timeoutSignal(timeout);
     try {
-      const { response, data } = await fetchJson(new URL("/api/v4/health", location.origin));
-      state.v4 = response.ok && data?.ok !== false;
-      if (state.v4) {
-        state.legacy = true;
-        state.checked = true;
-        return { ...state };
+      const response = await fetch(url, {
+        mode: "cors",
+        cache: "no-store",
+        ...fetchOptions,
+        signal: fetchOptions.signal || timeoutState.controller.signal,
+        headers: { ...JSON_HEADERS, ...(fetchOptions.headers || {}) }
+      });
+      let data = null;
+      const contentType = response.headers.get("content-type") || "";
+      if (/json/i.test(contentType)) {
+        try { data = await response.json(); } catch {}
+      } else {
+        try {
+          const text = await response.text();
+          data = text ? { message: text.slice(0, 240) } : null;
+        } catch {}
       }
-      if (response.status !== 404) state.v4 = false;
-    } catch {
-      state.v4 = false;
+      return { response, data };
+    } finally {
+      timeoutState.clear();
     }
-
-    try {
-      const { response, data } = await fetchJson(new URL("/api/health", location.origin));
-      state.legacy = response.ok && data?.ok !== false;
-    } catch {
-      state.legacy = false;
-    }
-
-    state.checked = true;
-    return { ...state };
   }
 
-  function belgiumLocalDate(raw) {
-    const match = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
-    if (!match) return null;
-    const [, y, mo, d, h, mi, sec = "0", ms = "0"] = match;
-    const target = Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec, +(ms.padEnd(3, "0")));
-    const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Brussels", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
-    let candidate = target;
-    for (let i = 0; i < 2; i += 1) {
-      const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
-      const represented = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second, +(ms.padEnd(3, "0")));
-      candidate += target - represented;
-    }
-    const date = new Date(candidate);
-    return Number.isNaN(date.getTime()) ? null : date;
+  async function cachedJson(url, ttlMs = 15000, options = {}) {
+    const key = String(url);
+    const existing = cache.get(key);
+    if (existing && Date.now() - existing.at < ttlMs) return existing.value;
+    const pending = fetchJson(url, options).then(result => {
+      if (result.response.ok) cache.set(key, { at: Date.now(), value: result });
+      return result;
+    }).catch(error => {
+      cache.delete(key);
+      throw error;
+    });
+    cache.set(key, { at: Date.now(), value: pending });
+    const result = await pending;
+    cache.set(key, { at: Date.now(), value: result });
+    return result;
   }
 
   function parseDate(raw) {
@@ -77,111 +83,13 @@
       const d = new Date(n > 1e12 ? n : n * 1000);
       return Number.isNaN(d.getTime()) ? null : d;
     }
-    const belgian = belgiumLocalDate(raw);
-    if (belgian) return belgian;
     const d = new Date(raw);
-    if (!Number.isNaN(d.getTime())) return d;
-    const match = String(raw).match(/(\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (!match) return null;
-    const today = new Date();
-    today.setHours(Number(match[1]), Number(match[2]), Number(match[3] || 0), 0);
-    return today;
+    return Number.isNaN(d.getTime()) ? null : d;
   }
 
   function iso(raw) {
     const d = parseDate(raw);
     return d ? d.toISOString() : null;
-  }
-
-  function pick(obj, paths, fallback = "") {
-    for (const path of paths) {
-      let value = obj;
-      for (const key of path.split(".")) value = value?.[key];
-      if (value !== undefined && value !== null && String(value).trim() !== "") return value;
-    }
-    return fallback;
-  }
-
-  function normalizeLegacyDeLijn(item, stopName = "") {
-    const realtimeRaw = pick(item, ["real-timeTijdstip", "realTimeTijdstip", "realtimeTijdstip", "realTime", "realtime"]);
-    const plannedRaw = pick(item, ["dienstregelingTijdstip", "geplandeTijdstip", "tijdstip", "scheduledTime", "doorkomsttijd"]);
-    const effectiveRaw = realtimeRaw || plannedRaw;
-    const planned = iso(plannedRaw || effectiveRaw);
-    const realtimeDate = iso(realtimeRaw || effectiveRaw);
-    const status = [
-      ...(Array.isArray(item?.predictionStatussen) ? item.predictionStatussen : []),
-      pick(item, ["status", "ritstatus", "doorkomstStatus", "predictionStatus"], "")
-    ].filter(Boolean).join(" ");
-    const realtime = Boolean(item.realTime || item.realtime || item.isRealtime || /real|voorspel|prediction/i.test(status));
-    const line = pick(item, ["lijnnummerPubliek", "lijnnummer", "lijnNummer", "lineNumber", "lijn.lijnnummer", "lijn.nummer"], "—");
-    const destination = pick(item, ["bestemming", "bestemmingNaam", "richting", "destination", "bestemming.omschrijving", "lijnrichting"], "Onbekende richting");
-    let delayMinutes = Number(pick(item, ["delayMinutes", "vertraging"], 0)) || 0;
-    if (!delayMinutes && Number.isFinite(Number(item.afwijking))) delayMinutes = Math.round(Number(item.afwijking) / 60);
-    if (!delayMinutes && planned && realtimeDate) delayMinutes = Math.round((new Date(realtimeDate) - new Date(planned)) / 60000);
-    const modeRaw = String(pick(item, ["vervoertype", "transportType", "mode"], ""));
-    return {
-      id: String(pick(item, ["doorkomstId", "tripId", "id", "ritnummer"], `${line}-${effectiveRaw}`)),
-      mode: /tram/i.test(modeRaw) ? "tram" : "bus",
-      line: String(line),
-      operator: "De Lijn",
-      destination: typeof destination === "object" ? String(destination.omschrijving || destination.naam || "Onbekende richting") : String(destination),
-      origin: stopName,
-      plannedDeparture: planned || realtimeDate,
-      realtimeDeparture: realtimeDate || planned,
-      delayMinutes,
-      platform: "",
-      platformChanged: false,
-      realtime,
-      cancelled: /geannuleerd|cancel/i.test(status),
-      source: "delijn-legacy"
-    };
-  }
-
-  function extractLegacyDepartures(data) {
-    if (Array.isArray(data?.departures)) return data.departures;
-    if (Array.isArray(data?.vertrekken)) return data.vertrekken;
-    if (Array.isArray(data?.doorkomsten)) return data.doorkomsten;
-    const groups = data?.halteDoorkomsten || data?.doorkomstenPerHalte || [];
-    return asArray(groups).flatMap(group => asArray(group?.doorkomsten || group?.departures || group));
-  }
-
-  async function stopDepartures(entity, stopNumber, max = 8) {
-    const capabilities = await detect();
-    const stopId = `${String(entity).replace(/\D/g, "")}-${String(stopNumber).replace(/\D/g, "")}`;
-
-    if (capabilities.v4) {
-      const url = new URL(`/api/v4/stops/${encodeURIComponent(stopId)}/departures`, location.origin);
-      url.searchParams.set("max", String(max));
-      const { response, data } = await fetchJson(url);
-      if (response.ok) return { departures: asArray(data?.departures).slice(0, max), source: "v4" };
-      if (response.status !== 404) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-      state.v4 = false;
-    }
-
-    const legacy = new URL("/api/delijn/departures", location.origin);
-    legacy.searchParams.set("halteId", stopId);
-    const { response, data } = await fetchJson(legacy);
-    if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-    return {
-      departures: extractLegacyDepartures(data).map(item => normalizeLegacyDeLijn(item)).filter(item => item.plannedDeparture).slice(0, max),
-      source: "legacy"
-    };
-  }
-
-  function normalizeLegacyStop(stop) {
-    return {
-      type: "stop",
-      mode: "bus",
-      id: `${stop.entiteit || stop.entiteitnummer || ""}-${stop.haltenummer || stop.stop || ""}`,
-      entity: String(stop.entiteit || stop.entiteitnummer || ""),
-      stop: String(stop.haltenummer || stop.stop || ""),
-      name: String(stop.name || stop.omschrijving || stop.naam || "Halte"),
-      operator: "De Lijn",
-      distanceMeters: Number(stop.distanceMeters || stop.distance || 0),
-      latitude: Number(stop.latitude ?? stop.lat),
-      longitude: Number(stop.longitude ?? stop.lon ?? stop.lng),
-      departures: []
-    };
   }
 
   function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -194,200 +102,321 @@
     return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  function normalizeIRailDeparture(item, stationName = "") {
-    const delaySeconds = Number(item?.delay || 0);
-    const planned = iso(item?.time);
-    const realtime = planned ? new Date(new Date(planned).getTime() + delaySeconds * 1000).toISOString() : null;
-    const line = String(item?.vehicleinfo?.shortname || item?.vehicle || "Trein")
-      .replace(/^BE\.NMBS\./i, "")
-      .replace(/^(IC|L|P|S\d*|ICE|TGV|EUR|EXP)(\d)/i, "$1 $2");
+  function modeFromTransitous(mode, modes = []) {
+    const values = [mode, ...asArray(modes)].map(v => String(v || "").toUpperCase());
+    if (values.some(v => v === "TRAM" || v === "LIGHT_RAIL")) return "tram";
+    if (values.some(v => /RAIL|SUBURBAN|TRAIN|HIGHSPEED/.test(v))) return "train";
+    if (values.some(v => v === "SUBWAY" || v === "METRO")) return "metro";
+    if (values.some(v => v === "FERRY")) return "ferry";
+    return "bus";
+  }
+
+  function municipalityFromMatch(match) {
+    const areas = asArray(match?.areas);
+    const preferred = areas.find(area => area?.default) || areas.find(area => area?.unique) || areas[0];
+    return String(preferred?.name || match?.locality || match?.city || "");
+  }
+
+  function normalizeMatch(match) {
+    if (!match) return null;
+    const lat = Number(match.lat ?? match.latitude);
+    const lon = Number(match.lon ?? match.longitude ?? match.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    const id = String(match.id || match.stopId || "");
+    const modes = asArray(match.modes);
     return {
-      id: String(item?.departureConnection || item?.vehicle || `${stationName}-${planned || ""}`),
-      mode: "train",
-      line,
-      operator: "NMBS/SNCB",
-      destination: String(item?.stationinfo?.standardname || item?.station || item?.direction?.name || "Onbekende richting"),
-      origin: stationName,
-      plannedDeparture: planned,
-      realtimeDeparture: realtime || planned,
-      delayMinutes: Math.round(delaySeconds / 60),
-      platform: String(item?.platforminfo?.name || item?.platform || ""),
-      platformChanged: item?.platforminfo?.normal === "0" || item?.platforminfo?.normal === 0,
-      realtime: true,
-      cancelled: item?.canceled === "1" || item?.canceled === 1 || item?.canceled === true,
-      vehicleId: String(item?.vehicle || ""),
-      source: "irail-direct"
+      type: String(match.type || "STOP").toUpperCase() === "STOP" ? "stop" : "place",
+      mode: modeFromTransitous("", modes),
+      id,
+      transitousId: id,
+      name: String(match.name || "Onbekende halte"),
+      municipality: municipalityFromMatch(match),
+      street: String(match.street || ""),
+      entity: "",
+      stop: id,
+      lat,
+      lon,
+      latitude: lat,
+      longitude: lon,
+      operator: "Openbaar vervoer",
+      modes,
+      raw: match
     };
   }
 
-  async function directNearbyRail(lat, lon, radius, maxPlaces, maxDepartures) {
-    try {
-      const stationsUrl = new URL("https://api.irail.be/stations/");
-      stationsUrl.searchParams.set("format", "json");
-      stationsUrl.searchParams.set("lang", "nl");
-      const { response, data } = await fetchJson(stationsUrl, { mode: "cors" });
-      if (!response.ok) return [];
-      const stations = asArray(data?.station).map(item => ({
-        id: String(item.id || item["@id"] || ""),
-        name: String(item.standardname || item.name || "Station"),
-        latitude: Number(item.locationY),
-        longitude: Number(item.locationX)
-      })).filter(item => item.id && Number.isFinite(item.latitude) && Number.isFinite(item.longitude))
-        .map(item => ({ ...item, distanceMeters: Math.round(haversineMeters(lat, lon, item.latitude, item.longitude)) }))
-        .filter(item => item.distanceMeters <= Math.max(radius, 5000))
-        .sort((a, b) => a.distanceMeters - b.distanceMeters)
-        .slice(0, Math.min(2, maxPlaces));
+  function normalizeStopTime(item, stopName = "") {
+    const place = item?.place || {};
+    const plannedRaw = place.scheduledDeparture || place.scheduledArrival || place.departure || place.arrival;
+    const effectiveRaw = place.departure || place.arrival || plannedRaw;
+    const planned = iso(plannedRaw || effectiveRaw);
+    const effective = iso(effectiveRaw || plannedRaw);
+    const plannedDate = parseDate(planned);
+    const effectiveDate = parseDate(effective);
+    const delayMinutes = plannedDate && effectiveDate
+      ? Math.round((effectiveDate.getTime() - plannedDate.getTime()) / 60000)
+      : 0;
 
-      return await Promise.all(stations.map(async station => {
-        try {
-          const liveboard = new URL("https://api.irail.be/liveboard/");
-          liveboard.searchParams.set("id", station.id);
-          liveboard.searchParams.set("format", "json");
-          liveboard.searchParams.set("lang", "nl");
-          liveboard.searchParams.set("arrdep", "departure");
-          liveboard.searchParams.set("alerts", "false");
-          const { response, data } = await fetchJson(liveboard, { mode: "cors" });
-          if (!response.ok) throw new Error();
-          return {
-            type: "station", mode: "train", id: station.id, name: station.name, operator: "NMBS/SNCB",
-            distanceMeters: station.distanceMeters, latitude: station.latitude, longitude: station.longitude,
-            departures: asArray(data?.departures?.departure).slice(0, maxDepartures).map(item => normalizeIRailDeparture(item, station.name))
-          };
-        } catch {
-          return { type: "station", mode: "train", ...station, operator: "NMBS/SNCB", departures: [], liveUnavailable: true };
-        }
-      }));
-    } catch {
-      return [];
+    const mode = modeFromTransitous(item?.mode);
+    const display = String(item?.routeShortName || item?.displayName || item?.tripShortName || "").trim();
+    const fallbackLine = mode === "train" ? "Trein" : mode === "tram" ? "Tram" : "Bus";
+    const operator = String(item?.agencyName || item?.source || (mode === "train" ? "NMBS/SNCB" : "Openbaar vervoer"));
+    const cancelled = Boolean(item?.cancelled || item?.tripCancelled);
+
+    return {
+      id: String(item?.tripId || `${place.stopId || stopName}-${effective || planned || ""}`),
+      tripId: String(item?.tripId || ""),
+      stopId: String(place.stopId || ""),
+      stopName: String(place.name || stopName || ""),
+      stopLatitude: Number(place.lat),
+      stopLongitude: Number(place.lon),
+      mode,
+      line: display || fallbackLine,
+      operator,
+      destination: String(item?.headsign || item?.tripTo?.name || item?.routeLongName || "Onbekende richting"),
+      origin: String(place.name || stopName || ""),
+      plannedDeparture: planned || effective,
+      realtimeDeparture: effective || planned,
+      delayMinutes,
+      platform: String(place.track || place.scheduledTrack || ""),
+      platformChanged: Boolean(place.track && place.scheduledTrack && place.track !== place.scheduledTrack),
+      realtime: Boolean(item?.realTime),
+      cancelled,
+      source: "transitous"
+    };
+  }
+
+  async function transitousGeocode(query, max = 10) {
+    const url = new URL(`${TRANSITOUS_BASE}/api/v1/geocode`);
+    url.searchParams.set("text", query);
+    url.searchParams.set("type", "STOP");
+    url.searchParams.set("numResults", String(clamp(max, 1, 20)));
+    url.searchParams.set("language", "nl");
+    const { response, data } = await cachedJson(url, 45_000);
+    if (!response.ok) throw new Error(data?.message || `Transitous zoeken HTTP ${response.status}`);
+    return asArray(data).map(normalizeMatch).filter(Boolean);
+  }
+
+  async function transitousReverseStops(lat, lon, max = 8) {
+    const url = new URL(`${TRANSITOUS_BASE}/api/v1/reverse-geocode`);
+    url.searchParams.set("place", `${lat},${lon}`);
+    url.searchParams.set("type", "STOP");
+    url.searchParams.set("numResults", String(clamp(max, 1, 20)));
+    const { response, data } = await cachedJson(url, 15_000);
+    if (!response.ok) throw new Error(data?.message || `Transitous dichtbij HTTP ${response.status}`);
+    return asArray(data).map(normalizeMatch).filter(Boolean);
+  }
+
+  async function transitousStopTimes({ stopId = "", lat, lon, radius = 120, max = 8 }) {
+    const url = new URL(`${TRANSITOUS_BASE}/api/v6/stoptimes`);
+    if (stopId) {
+      url.searchParams.set("stopId", String(stopId));
+    } else if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
+      url.searchParams.set("center", `${Number(lat)},${Number(lon)}`);
+      url.searchParams.set("radius", String(clamp(radius, 25, 2500)));
+      url.searchParams.set("exactRadius", "false");
+    } else {
+      throw new Error("Geen geldige halte of coördinaat beschikbaar.");
     }
+    url.searchParams.set("n", String(clamp(max, 1, 30)));
+    url.searchParams.set("arriveBy", "false");
+    url.searchParams.set("both", "false");
+    url.searchParams.set("realtimeMode", "REALTIME");
+    url.searchParams.set("language", "nl");
+    url.searchParams.set("withAlerts", "true");
+
+    const { response, data } = await cachedJson(url, 8_000);
+    if (!response.ok) throw new Error(data?.message || `Transitous vertrekken HTTP ${response.status}`);
+    const stopName = String(data?.place?.name || "");
+    return {
+      place: data?.place || null,
+      departures: asArray(data?.stopTimes)
+        .map(item => normalizeStopTime(item, stopName))
+        .filter(item => item.plannedDeparture || item.realtimeDeparture)
+        .slice(0, max)
+    };
+  }
+
+  async function stopDepartures(stopOrEntity, maybeStopNumber, maybeMax = 8) {
+    let stop = null;
+    let max = maybeMax;
+
+    if (stopOrEntity && typeof stopOrEntity === "object") {
+      stop = stopOrEntity;
+      max = Number(maybeStopNumber || maybeMax || 8);
+    } else {
+      // Backwards compatibility for older calls. A De Lijn numeric identifier is
+      // not a Transitous stop id, so coordinates are preferred by OVFlow 4.2.
+      stop = { entity: String(stopOrEntity || ""), stop: String(maybeStopNumber || "") };
+    }
+
+    const stopId = String(stop.transitousId || stop.id || "");
+    const lat = Number(stop.lat ?? stop.latitude);
+    const lon = Number(stop.lon ?? stop.longitude ?? stop.lng);
+
+    let result = null;
+    if (stopId && !/^\d{1,3}-\d+$/.test(stopId)) {
+      try { result = await transitousStopTimes({ stopId, max }); } catch {}
+    }
+    if (!result && Number.isFinite(lat) && Number.isFinite(lon)) {
+      result = await transitousStopTimes({ lat, lon, radius: 130, max });
+    }
+    if (!result) {
+      throw new Error("Voor deze oude haltecode ontbreken coördinaten. Zoek de halte opnieuw in OVFlow 4.2.");
+    }
+    return { departures: result.departures, source: "transitous" };
+  }
+
+  async function nearbyStops({ lat, lon, radius = 2500, max = 12 }) {
+    const latitude = Number(lat);
+    const longitude = Number(lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error("Ongeldige locatie.");
+
+    const candidates = await transitousReverseStops(latitude, longitude, Math.min(Math.max(max * 2, 8), 20));
+    return candidates
+      .map(stop => {
+        const distanceMeters = Math.round(haversineMeters(latitude, longitude, stop.lat, stop.lon));
+        return { ...stop, distanceMeters, distanceKm: distanceMeters / 1000 };
+      })
+      .filter(stop => stop.distanceMeters <= Number(radius || 2500))
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)
+      .slice(0, max);
   }
 
   async function nearby({ lat, lon, radius = 2500, maxPlaces = 6, maxDepartures = 3 }) {
-    const capabilities = await detect();
-    if (capabilities.v4) {
-      const url = new URL("/api/v4/nearby", location.origin);
-      url.searchParams.set("lat", lat);
-      url.searchParams.set("lon", lon);
-      url.searchParams.set("radius", radius);
-      url.searchParams.set("maxPlaces", maxPlaces);
-      url.searchParams.set("maxDepartures", maxDepartures);
-      const { response, data } = await fetchJson(url);
-      if (response.ok) return { ...data, compatibility: "v4" };
-      if (response.status !== 404) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-      state.v4 = false;
+    const latitude = Number(lat);
+    const longitude = Number(lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error("Ongeldige locatie.");
+
+    // Eén compacte MOTIS-stoptimes call is de normale route. Dit is veel
+    // zuiniger dan voor iedere halte een aparte request te doen.
+    try {
+      const board = await transitousStopTimes({
+        lat: latitude,
+        lon: longitude,
+        radius: clamp(radius, 100, 2500),
+        max: Math.min(30, Math.max(12, maxPlaces * maxDepartures * 2))
+      });
+      const grouped = new Map();
+
+      for (const dep of board.departures) {
+        const stopLat = Number(dep.stopLatitude);
+        const stopLon = Number(dep.stopLongitude);
+        const key = dep.stopId || `${dep.stopName}|${stopLat}|${stopLon}`;
+        if (!key) continue;
+        if (!grouped.has(key)) {
+          const distanceMeters = Number.isFinite(stopLat) && Number.isFinite(stopLon)
+            ? Math.round(haversineMeters(latitude, longitude, stopLat, stopLon))
+            : null;
+          grouped.set(key, {
+            type: dep.mode === "train" ? "station" : "stop",
+            mode: dep.mode || "bus",
+            id: dep.stopId || key,
+            transitousId: dep.stopId || "",
+            name: dep.stopName || dep.origin || "Halte",
+            operator: dep.operator || "Openbaar vervoer",
+            distanceMeters,
+            latitude: stopLat,
+            longitude: stopLon,
+            lat: stopLat,
+            lon: stopLon,
+            departures: []
+          });
+        }
+        const group = grouped.get(key);
+        if (group.departures.length < maxDepartures) group.departures.push(dep);
+      }
+
+      const places = [...grouped.values()]
+        .filter(place => place.distanceMeters == null || place.distanceMeters <= radius)
+        .sort((a, b) => (a.distanceMeters ?? Number.POSITIVE_INFINITY) - (b.distanceMeters ?? Number.POSITIVE_INFINITY))
+        .slice(0, maxPlaces);
+
+      if (places.length) {
+        return {
+          ok: true,
+          places,
+          compatibility: "public",
+          source: "Transitous / MOTIS",
+          updatedAt: new Date().toISOString()
+        };
+      }
+    } catch (error) {
+      console.warn("OVFlow nearby board fallback:", error?.message || error);
     }
 
-    const url = new URL("/api/delijn/nearby", location.origin);
-    url.searchParams.set("lat", lat);
-    url.searchParams.set("lon", lon);
-    url.searchParams.set("radius", radius);
-    url.searchParams.set("max", Math.min(maxPlaces, 6));
-    const { response, data } = await fetchJson(url);
-    if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-
-    const stops = asArray(data?.stops || data?.haltes).map(normalizeLegacyStop).slice(0, Math.min(maxPlaces, 6));
-    await Promise.all(stops.map(async place => {
-      if (!place.entity || !place.stop) return;
+    // Fallback voor locaties waar de radius-query geen gebeurtenissen oplevert:
+    // zoek de dichtstbijzijnde stops en laad alleen de eerste paar borden.
+    const stops = await nearbyStops({ lat: latitude, lon: longitude, radius, max: Math.min(Math.max(maxPlaces * 2, 8), 16) });
+    const selected = stops.slice(0, maxPlaces);
+    const hydrated = await Promise.all(selected.map(async stop => {
       try {
-        const result = await stopDepartures(place.entity, place.stop, maxDepartures);
-        place.departures = result.departures;
+        const result = await transitousStopTimes({ stopId: stop.transitousId || stop.id, max: maxDepartures });
+        const departures = result.departures;
+        const operatorNames = [...new Set(departures.map(dep => dep.operator).filter(Boolean))];
+        const first = departures[0];
+        return {
+          type: first?.mode === "train" ? "station" : "stop",
+          mode: first?.mode || stop.mode || "bus",
+          id: stop.id, transitousId: stop.transitousId, name: stop.name,
+          operator: operatorNames.slice(0, 2).join(" · ") || "Openbaar vervoer",
+          distanceMeters: stop.distanceMeters, latitude: stop.lat, longitude: stop.lon, lat: stop.lat, lon: stop.lon,
+          departures
+        };
       } catch {
-        place.liveUnavailable = true;
+        return {
+          type: stop.mode === "train" ? "station" : "stop", mode: stop.mode || "bus",
+          id: stop.id, transitousId: stop.transitousId, name: stop.name, operator: "Openbaar vervoer",
+          distanceMeters: stop.distanceMeters, latitude: stop.lat, longitude: stop.lon, lat: stop.lat, lon: stop.lon,
+          departures: [], liveUnavailable: true
+        };
       }
     }));
 
-    const rail = await directNearbyRail(lat, lon, radius, maxPlaces, maxDepartures);
-    const places = [...stops, ...rail].sort((a, b) => Number(a.distanceMeters || 0) - Number(b.distanceMeters || 0)).slice(0, maxPlaces);
-    return { ok: true, places, compatibility: "legacy", updatedAt: new Date().toISOString() };
+    return {
+      ok: true,
+      places: hydrated.sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, maxPlaces),
+      compatibility: "public",
+      source: "Transitous / MOTIS",
+      updatedAt: new Date().toISOString()
+    };
   }
 
   async function searchPlaces(query, max = 10) {
     const q = String(query || "").trim();
     if (q.length < 2) return [];
-
-    const capabilities = await detect();
-    if (capabilities.v4) {
-      const url = new URL("/api/v4/search", location.origin);
-      url.searchParams.set("q", q);
-      url.searchParams.set("max", String(Math.min(Math.max(Number(max) || 10, 1), 20)));
-      const { response, data } = await fetchJson(url);
-      if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-
-      return asArray(data?.results)
-        .filter(item => Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude)))
-        .map(item => ({
-          type: item.type || "stop",
-          mode: item.mode || (item.type === "station" ? "train" : "bus"),
-          id: String(item.id || ""),
-          name: String(item.name || "Onbekende halte"),
-          municipality: String(item.subtitle || item.operator || ""),
-          street: "",
-          entity: String(item.entity || ""),
-          stop: String(item.stopNumber || ""),
-          lat: Number(item.latitude),
-          lon: Number(item.longitude),
-          operator: String(item.operator || "")
-        }));
-    }
-
-    // Legacy fallback: server-side search, never download the full catalogue in the browser.
-    const url = new URL("/api/delijn/search", location.origin);
-    url.searchParams.set("q", q);
-    const { response, data } = await fetchJson(url);
-    if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-    return asArray(data?.stops || data?.haltes || data?.results)
-      .map(normalizeLegacyStop)
-      .filter(item => Number.isFinite(item.latitude) && Number.isFinite(item.longitude))
-      .slice(0, max)
-      .map(item => ({ ...item, stop: item.stop, entity: item.entity, lat: item.latitude, lon: item.longitude }));
+    return transitousGeocode(q, max);
   }
 
-  async function nearbyStops({ lat, lon, radius = 2500, max = 12 }) {
-    const capabilities = await detect();
-    if (capabilities.v4) {
-      const url = new URL("/api/v4/stops/nearby", location.origin);
-      url.searchParams.set("lat", String(lat));
-      url.searchParams.set("lon", String(lon));
-      url.searchParams.set("radius", String(radius));
-      url.searchParams.set("max", String(max));
-      const { response, data } = await fetchJson(url);
-      if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-      return asArray(data?.stops).map(stop => ({
-        type: "stop",
-        mode: stop.mode || "bus",
-        id: String(stop.id || ""),
-        name: String(stop.name || "Halte"),
-        municipality: "",
-        street: "",
-        entity: String(stop.entity || ""),
-        stop: String(stop.stopNumber || ""),
-        lat: Number(stop.latitude),
-        lon: Number(stop.longitude),
-        distanceMeters: Number(stop.distanceMeters || 0),
-        distanceKm: Number(stop.distanceMeters || 0) / 1000,
-        operator: String(stop.operator || "De Lijn")
-      }));
-    }
-
-    const legacy = new URL("/api/delijn/nearby", location.origin);
-    legacy.searchParams.set("lat", String(lat));
-    legacy.searchParams.set("lon", String(lon));
-    legacy.searchParams.set("radius", String(radius));
-    legacy.searchParams.set("max", String(Math.min(max, 12)));
-    const { response, data } = await fetchJson(legacy);
-    if (!response.ok) throw new Error(data?.message || `OVFlow Core HTTP ${response.status}`);
-    return asArray(data?.stops || data?.haltes)
-      .map(normalizeLegacyStop)
-      .map(stop => ({ ...stop, stop: stop.stop, entity: stop.entity, lat: stop.latitude, lon: stop.longitude, distanceKm: Number(stop.distanceMeters || 0) / 1000 }));
-  }
-
-  async function health(force = false) {
-    const capabilities = await detect(force);
+  async function detect() {
     return {
-      ok: Boolean(capabilities.v4 || capabilities.legacy),
-      mode: capabilities.v4 ? "v4" : capabilities.legacy ? "legacy" : "offline"
+      checked: true,
+      v4: false,
+      legacy: false,
+      public: true,
+      source: "Transitous / MOTIS"
     };
   }
 
-  window.OVFlowCore = { detect, health, stopDepartures, nearby, nearbyStops, searchPlaces, fetchJson };
+  async function health() {
+    // Do not generate a request every minute only to paint a green status dot.
+    // Real feature calls surface their own network errors. navigator.onLine is
+    // enough for this lightweight UI indicator and avoids 404 spam completely.
+    return {
+      ok: navigator.onLine !== false,
+      mode: "public",
+      source: "Transitous / MOTIS"
+    };
+  }
+
+  window.OVFlowCore = {
+    detect,
+    health,
+    stopDepartures,
+    nearby,
+    nearbyStops,
+    searchPlaces,
+    fetchJson,
+    transitousStopTimes
+  };
 })();

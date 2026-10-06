@@ -6,9 +6,13 @@
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
 <meta content="#F3FAFF" name="theme-color"/>
 <meta content="yes" name="apple-mobile-web-app-capable"/>
+<meta content="yes" name="mobile-web-app-capable"/>
 <meta content="default" name="apple-mobile-web-app-status-bar-style"/>
-<title>OVFlow 4.1 — Eén reis</title>
-<link href="style.css?v=4.1.0" rel="stylesheet"/>
+<title>OVFlow 4.2 — Eén reis</title>
+<link href="style.css?v=4.2.0" rel="stylesheet"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2716%27 fill=%27%230b76ff%27/%3E%3Cpath d=%27M15 38c8-18 18-18 34-12%27 fill=%27none%27 stroke=%27white%27 stroke-width=%276%27 stroke-linecap=%27round%27/%3E%3Ccircle cx=%2748%27 cy=%2726%27 r=%275%27 fill=%27white%27/%3E%3C/svg%3E"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="apple-touch-icon" href="ovflow-icon-192.png"/>
 </head>
 <body class="ovflow-v40">
 <div class="ambient a"></div>
@@ -23,7 +27,7 @@
 </span>
 <span class="brand-copy">
 <strong>OVFlow</strong>
-<small>4.1</small>
+<small>4.2</small>
 </span>
 </a>
 <div class="top-actions">
@@ -514,12 +518,12 @@
 <span class="section-kicker">Databron</span>
 <h2>Live verbinding</h2>
 </div>
-<span class="source-badge">bron: De Lijn</span>
+<span class="source-badge">Transitous + iRail</span>
 </div>
 <div class="connection-list">
 <div class="connection-row">
-<span>Core API</span>
-<strong id="coreApiState">Controleren…</strong>
+<span>Dataverbinding</span>
+<strong id="coreApiState">Open data</strong>
 </div>
 <div class="connection-row">
 <span>Realtime halte</span>
@@ -562,12 +566,12 @@
 <div class="insight-card">
 <span>API-status</span>
 <strong id="insightApi">Verbinden…</strong>
-<small>Via OVFlow Core; bron-specifieke sleutels blijven server-side.</small>
+<small>Rechtstreeks via open vervoersdata; geen lokale Core nodig.</small>
 </div>
 </section>
 </section><footer class="footer technical-footer">
-<span>OVFlow 4.1</span>
-<span>bron: De Lijn</span>
+<span>OVFlow 4.2</span>
+<span>Transitous · iRail · OpenStreetMap</span>
 <span>Open Data</span>
 </footer></main>
 <nav aria-label="Hoofdnavigatie" class="bottom-nav">
@@ -594,7 +598,7 @@
 <div class="sheet-handle"></div>
 <div class="sheet-head">
 <div>
-<span class="section-kicker">OVFlow 4.1</span>
+<span class="section-kicker">OVFlow 4.2</span>
 <h2>Instellingen</h2>
 </div>
 <button aria-label="Sluiten" class="icon-button" id="closeSettings">
@@ -602,41 +606,27 @@
 </button>
 </div>
 <div class="sheet-info">
-<strong>Handmatige halte-instelling</strong>
-<p>Gebruik dit alleen als je een haltecode handmatig wilt instellen.</p>
+<strong>Actuele open vervoersdata</strong>
+<p>OVFlow kiest zelf de juiste halte en databron. Je hoeft geen haltenummers of API-codes meer in te vullen.</p>
 </div>
 <label class="form-field">
-<span>Naam in OVFlow</span>
-<input id="stopNameInput" placeholder="Bijv. Mijn halte"/>
-</label>
-<div class="field-grid">
-<label class="form-field">
-<span>Entiteitnummer</span>
-<input id="entityInput" inputmode="numeric" placeholder="2"/>
-</label>
-<label class="form-field">
-<span>Haltenummer</span>
-<input id="stopNumberInput" inputmode="numeric" placeholder="202485"/>
-</label>
-</div>
-<label class="form-field">
-<span>Aantal vertrekken</span>
+<span>Aantal vertrekken op een haltebord</span>
 <select id="maxDeparturesSelect">
-<option value="4">4</option>
-<option selected="" value="6">6</option>
-<option value="8">8</option>
-<option value="10">10</option>
+<option value="4">4 vertrekken</option>
+<option selected="" value="6">6 vertrekken</option>
+<option value="8">8 vertrekken</option>
+<option value="10">10 vertrekken</option>
 </select>
 </label>
-<button class="sheet-primary" id="saveSettings">Opslaan &amp; live laden</button>
-<div class="security-warning"><span>i</span><p><strong>OVFlow 4.1 Core.</strong> De browser gebruikt één centrale OVFlow-datalaag voor live-data, routes en treininfo.</p></div>
+<button class="sheet-primary" id="saveSettings">Instellingen opslaan</button>
+<div class="security-warning"><span>i</span><p><strong>OVFlow 4.2.</strong> Zoeken, vertrekken en routes werken rechtstreeks via open vervoersdata. Een eigen /api-backend is niet nodig.</p></div>
 </aside>
 <div class="toast" id="toast"></div>
-<script src="config.js?v=4.1.0"></script>
-<script src="core-client.js?v=4.1.0"></script>
-<script src="app.js?v=4.1.0"></script>
-<script src="planner.js?v=4.1.0"></script>
-<script src="quick-live.js?v=4.1.0"></script>
-<script src="ui.js?v=4.1.0"></script>
+<script src="config.js?v=4.2.0"></script>
+<script src="core-client.js?v=4.2.0"></script>
+<script src="app.js?v=4.2.0"></script>
+<script src="planner.js?v=4.2.0"></script>
+<script src="quick-live.js?v=4.2.0"></script>
+<script src="ui.js?v=4.2.0"></script>
 </body>
 </html>

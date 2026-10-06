@@ -1,49 +1,27 @@
-OVFlow 2.0 — FINAL TRANSIT REDESIGN
+OVFlow 4.2 — STATIC-FIRST LIVE OV
 
-DOEL
-Een echte, duidelijke openbaarvervoer-app in plaats van een technisch dashboard.
+BELANGRIJK
+Deze versie is gemaakt om ook op statische HTTPS-hosting te werken.
+De frontend probeert niet meer automatisch /api/v4/health, /api/health of /api/delijn/nearby.
 
-NIEUWE HIERARCHIE
-1. Home: snelle acties
-2. Plannen: routeplanner staat vooraan
-3. Haltes & vertrekken
-4. Realtime vertrekbord
-5. Live rit
-6. Kaart / haltes in de buurt
-
-BOTTOM NAV
-- Home
-- Plannen
-- Live
-- Haltes
-- Meer
-
-UI
-- Licht, rustig OV-design
-- Duidelijke marineblauwe tekst op witte kaarten
-- Blauw voor acties/routing
-- Mintgroen voor live/realtime
-- Veel grotere tekst dan vorige versies
-- Geen miniatuur-labels van 7-8 px meer in de belangrijkste flows
-- Minder onnodige glassmorphism
-- Grote touch targets
-- Technische API-panelen verborgen voor de gewone gebruiker
-
-REISINFO
-- Realtime haltevertrekken
-- Routeplanner bus/tram/trein
+HOOFDFUNCTIES
+- Home met vertrekken dichtbij
+- Zoeken naar haltes en stations
+- Routeplanner bus / tram / trein
+- Realtime waar beschikbaar
 - Live Trip
-- Alle haltes/stations per rit
-- NMBS/iRail integratie
-- Kaart + haltezoeker
-- GPS resync na iPhone scherm-uit
+- NMBS-details via iRail
+- Kaart en opgeslagen ritten
 
-REALTIME REFRESH
-Automatisch vernieuwen is ingesteld op 15 seconden.
+DATABRONNEN
+- Transitous / MOTIS voor zoeken, vertrekborden, routes en tripdata
+- iRail voor extra NMBS-informatie
+- OpenStreetMap voor kaart/routingcontext
+- Digitaal Vlaanderen / De Lijn voor de optionele geografische haltelaag
 
-BROWSER-ONLY
-Blijft bruikbaar via GitHub Pages zonder eigen OVFlow backend.
-Voor publieke productie blijven browser-side API-sleutels wel een tijdelijk ontwikkelcompromis.
+DEPLOY
+Host deze map via HTTPS. Een eigen Node-server is niet vereist voor de primaire app.
+Open niet via file:// als je GPS en netwerkfuncties betrouwbaar wilt gebruiken.
 
-CACHE
-Lokale assets laden met ?v=2.0.0
+CHECK
+npm run check
