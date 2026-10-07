@@ -1,9 +1,7 @@
 window.OVFLOW_CONFIG = {
-  API_BASE: "",
-  // Zet hier de publieke URL van je OVFlow-backend zodra die online staat, bv.
-  // API_BASE: "https://api.jouwdomein.be"
-  // Laat leeg als je alleen de publieke Transitous-fallback gebruikt. Exacte
-  // De Lijn voertuig-GPS vereist de backend zodat je API-key geheim blijft.
+  API_BASE: "https://ovflow-api.wheaterflow.be",
+  // Publieke OVFlow-backend via Cloudflare Tunnel. De De Lijn keys blijven
+  // uitsluitend op de server en komen nooit in de browser terecht.
   AUTO_REFRESH_MS: 15000,
 
   // OVFlow 4.4 keeps static fallbacks, but exact De Lijn vehicle GPS uses the optional backend.

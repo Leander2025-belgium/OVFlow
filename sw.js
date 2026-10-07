@@ -1,4 +1,4 @@
-const CACHE = "ovflow-static-4.4.0";
+const CACHE = "ovflow-static-4.4.1";
 const SHELL = [
   "./", "./index.html", "./style.css", "./config.js", "./core-client.js", "./app.js",
   "./planner.js", "./quick-live.js", "./ui.js", "./manifest.webmanifest", "./ovflow-icon-192.png", "./ovflow-icon-512.png"

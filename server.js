@@ -7,14 +7,14 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
-const APP_VERSION = "OVFlow-4.4.0";
+const APP_VERSION = "OVFlow-4.4.1";
 const DATA_DIR = path.join(__dirname, "data");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 const MOLLIE_API_KEY = process.env.MOLLIE_API_KEY || "";
 const DELIJN_CORE_API_KEY = process.env.DELIJN_CORE_API_KEY || process.env.DELIJN_API_KEY || "";
 const DELIJN_GTFS_API_KEY = process.env.DELIJN_GTFS_API_KEY || process.env.DELIJN_API_KEY || "";
-const DELIJN_STATIC_API_KEY = process.env.DELIJN_STATIC_API_KEY || process.env.DELIJN_API_KEY || "";
+const DELIJN_STATIC_API_KEY = process.env.DELIJN_STATIC_API_KEY || process.env.DELIJN_GTFS_API_KEY || process.env.DELIJN_API_KEY || "";
 
 app.set("trust proxy", 1);
 app.use(helmet({
@@ -432,7 +432,9 @@ function comparableTripIds(value) {
   const decoded = (() => { try { return decodeURIComponent(raw); } catch { return raw; } })();
   const variants = new Set([raw, decoded]);
   for (const current of [...variants]) {
-    const clean = current.replace(/^trip[:=]/i, "").replace(/^delijn[:|/]/i, "");
+    const clean = current
+      .replace(/^trip[:=]/i, "")
+      .replace(/^(?:gt:)?delijn[:|/]/i, "");
     variants.add(clean);
     for (const sep of [":", "|", "/", "#"]) {
       const parts = clean.split(sep).filter(Boolean);
@@ -530,7 +532,7 @@ async function callIrailStations() {
     return fetchWithTimeout(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.4.0 (public-transit-app)"
+        "User-Agent": "OVFlow/4.4.1 (public-transit-app)"
       }
     }, 10_000);
   });
@@ -564,7 +566,7 @@ async function callIrailLiveboard(stationId, max = 8) {
     return fetchWithTimeout(url.toString(), {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.4.0 (public-transit-app)"
+        "User-Agent": "OVFlow/4.4.1 (public-transit-app)"
       }
     }, 10_000);
   }).then(data => {
@@ -662,7 +664,7 @@ async function fetchTransitous(pathname, searchParams, ttlMs = 15_000) {
   return cachedJson(key, ttlMs, () => fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
-      "User-Agent": "OVFlow/4.4.0 (public-transit-app)"
+      "User-Agent": "OVFlow/4.4.1 (public-transit-app)"
     }
   }, 20_000));
 }
@@ -1587,7 +1589,7 @@ app.get("/api/v4/stops/nearby", async (req, res) => {
     res.json({
       ok: true,
       source: "ovflow-core",
-      version: "4.4.0",
+      version: "4.4.1",
       location: { lat, lon },
       radius,
       stops,
@@ -1654,7 +1656,7 @@ app.get("/api/v4/rail/vehicle", async (req, res) => {
     url.searchParams.set("lang", "nl");
     url.searchParams.set("alerts", "false");
     const data = await cachedJson(`irail:vehicle:${id}:${date}`, 15_000, () => fetchWithTimeout(url.toString(), {
-      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.4.0 (public-transit-app)" }
+      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.4.1 (public-transit-app)" }
     }, 10_000));
     res.json(data);
   } catch (error) {
@@ -1821,7 +1823,7 @@ app.get("/api/v4/nearby", async (req, res) => {
   res.json({
     ok: true,
     source: "ovflow-core",
-    version: "4.4.0",
+    version: "4.4.1",
     location: { lat, lon },
     radius,
     places: merged.slice(0, maxPlaces),
@@ -2266,7 +2268,7 @@ app.get("/api/delijn/nearby", async (req, res) => {
 });
 
 app.get("/api/delijn/lijnen", async (req, res) => {
-  const q = sanitizeText(req.query.q || "", 120);
+  const q = sanitizeText(req.query.q || req.query.lijn || "", 120);
   const max = Math.min(Number(req.query.max || 30) || 30, 100);
 
   try {
