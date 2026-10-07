@@ -334,6 +334,18 @@
     return data;
   }
 
+  async function backendDelijnLineStops({ line, area = "", timeout = 5500 } = {}) {
+    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
+    const publicLine = String(line || "").trim();
+    if (!publicLine) throw new Error("Lijnnummer ontbreekt.");
+    const url = new URL(`${API_BASE}/api/v4/delijn/line-stops`);
+    url.searchParams.set("line", publicLine);
+    if (area) url.searchParams.set("area", String(area));
+    const { response, data } = await fetchJson(url, { timeout });
+    if (!response.ok || !data?.ok) throw new Error(data?.message || `OVFlow lijnhaltes HTTP ${response.status}`);
+    return data;
+  }
+
   async function backendVehiclePosition(tripId, line = "", options = {}) {
     if (!API_BASE) return null;
     const id = String(tripId || "").trim();
@@ -583,6 +595,7 @@
           type: first?.mode === "train" ? "station" : "stop",
           mode: first?.mode || stop.mode || "bus",
           id: stop.id, transitousId: stop.transitousId, name: stop.name,
+          municipality: stop.municipality || "",
           operator: operatorNames.slice(0, 2).join(" · ") || "Openbaar vervoer",
           distanceMeters: stop.distanceMeters, latitude: stop.lat, longitude: stop.lon, lat: stop.lat, lon: stop.lon,
           departures
@@ -590,7 +603,7 @@
       } catch {
         return {
           type: stop.mode === "train" ? "station" : "stop", mode: stop.mode || "bus",
-          id: stop.id, transitousId: stop.transitousId, name: stop.name, operator: "Openbaar vervoer",
+          id: stop.id, transitousId: stop.transitousId, name: stop.name, municipality: stop.municipality || "", operator: "Openbaar vervoer",
           distanceMeters: stop.distanceMeters, latitude: stop.lat, longitude: stop.lon, lat: stop.lat, lon: stop.lon,
           departures: [], liveUnavailable: true
         };
@@ -646,6 +659,7 @@
     transitousTrip,
     transitousTripFromDeparture,
     backendLiveTrip,
+    backendDelijnLineStops,
     backendVehiclePosition,
     hasBackend
   };

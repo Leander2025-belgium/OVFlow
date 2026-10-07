@@ -36,6 +36,8 @@
       vehicleTimer: null,
       wakeLock: null,
       followMap: false,
+      mapEnabled: false,
+      vehicleSnapped: false,
       warnedReady: false,
       warnedNow: false
     }
@@ -569,6 +571,7 @@
       vehicleCandidate: String(vehicleCandidate || ""),
       occupancy: String(occupancy || ""),
       vehiclePosition,
+      source: String(leg.source || ""),
       scheduledStart,
       scheduledEnd,
       start,
@@ -1944,15 +1947,19 @@
     updateLiveRealtimeCard(live, nextStop);
     updateLiveTripAlert(nextStop, nextIndex, distanceToNext);
 
-    bridge.updateLiveTripMap?.({
-      leg: live.leg,
-      vehiclePosition,
-      userPosition,
-      position: userPosition,
-      nextStop,
-      stops,
-      follow: live.followMap
-    });
+    // 4.5: never initialize MapLibre in the critical opening/render path.
+    // The large-map button still opens/focuses the map on demand.
+    if (live.mapEnabled) {
+      bridge.updateLiveTripMap?.({
+        leg: live.leg,
+        vehiclePosition,
+        userPosition,
+        position: userPosition,
+        nextStop,
+        stops,
+        follow: live.followMap
+      });
+    }
 
     const vehicleStatus = $("#liveTripVehicleStatus");
     if (vehicleStatus) {
@@ -2074,6 +2081,9 @@
   async function refreshLiveTripData() {
     const live = planner.live;
     if (!live.active || !live.leg?.tripId) return;
+    // De Lijn Core trips use their locked stop order + exact vehicle GPS.
+    // Do not re-enter the heavy Transitous trip endpoint every minute.
+    if (live.leg.source === "delijn-core") return;
 
     // IMPORTANT:
     // live.stops is the LOCKED segment the user selected when Live Trip started.
@@ -2186,6 +2196,26 @@
 
 
 
+  function snapLiveTripToVehicle(live, lat, lon) {
+    if (!live?.stops || live.stops.length < 2 || live.vehicleSnapped) return;
+    const position = { lat: Number(lat), lon: Number(lon), accuracy: 20 };
+    let best = null;
+    for (let i = 0; i < live.stops.length - 1; i += 1) {
+      const a = live.stops[i], b = live.stops[i + 1];
+      if (![a?.lat,a?.lon,b?.lat,b?.lon].every(v => Number.isFinite(Number(v)))) continue;
+      const projected = segmentProjection(position, a, b);
+      if (!projected) continue;
+      if (!best || projected.crossTrack < best.crossTrack) best = { i, ...projected };
+    }
+    if (best && Number.isFinite(best.crossTrack)) {
+      live.nextIndex = Math.max(1, Math.min(live.stops.length - 1, best.i + 1));
+      live.displayedProgress = ((best.i + Math.max(0, Math.min(1, best.fraction || 0))) / (live.stops.length - 1)) * 100;
+      live.progressTarget = live.displayedProgress;
+      live.vehicleSnapped = true;
+      resetCurrentStopTracker(live);
+    }
+  }
+
   async function refreshExactVehiclePosition() {
     const live = planner.live;
     if (!live?.active || !live.leg?.tripId || !core?.hasBackend?.()) return;
@@ -2203,6 +2233,7 @@
         bearing: Number(result.position.bearing || 0)
       };
       live.lastExactVehicleAt = Date.now();
+      snapLiveTripToVehicle(live, lat, lon);
       renderLiveTrip();
     } catch (error) {
       console.debug("OVFlow voertuig-GPS refresh:", error);
@@ -2515,6 +2546,8 @@
       vehicleTimer: null,
       wakeLock: null,
       followMap: false,
+      mapEnabled: false,
+      vehicleSnapped: false,
       warnedReady: false,
       warnedNow: false,
       minDistanceToNext: Infinity,
@@ -2610,6 +2643,7 @@
     if (!live.active) return;
 
     live.followMap = !live.followMap;
+    live.mapEnabled = live.followMap;
     $("#liveTripMapButton").classList.toggle("active", live.followMap);
 
     const nextStop = live.stops[live.nextIndex];

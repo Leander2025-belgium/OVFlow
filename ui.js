@@ -172,6 +172,100 @@
     return info;
   }
 
+  function liveNorm(value) {
+    return String(value || "").toLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function liveDistanceMeters(lat1, lon1, lat2, lon2) {
+    const values = [lat1, lon1, lat2, lon2].map(Number);
+    if (!values.every(Number.isFinite)) return Infinity;
+    const [a1, o1, a2, o2] = values;
+    const R = 6371000, toRad = x => x * Math.PI / 180;
+    const dLat = toRad(a2-a1), dLon = toRad(o2-o1);
+    const q = Math.sin(dLat/2)**2 + Math.cos(toRad(a1))*Math.cos(toRad(a2))*Math.sin(dLon/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(q), Math.sqrt(1-q));
+  }
+
+  function backendStopToPlace(stop) {
+    return {
+      name: String(stop?.name || "Halte"),
+      stopId: String(stop?.haltenummer || stop?.stopId || ""),
+      lat: Number(stop?.latitude ?? stop?.lat),
+      lon: Number(stop?.longitude ?? stop?.lon),
+      arrival: null,
+      departure: null,
+      scheduledArrival: null,
+      scheduledDeparture: null,
+      track: ""
+    };
+  }
+
+  async function delijnCoreLegForDeparture(departure, stop = {}) {
+    if (!core?.backendDelijnLineStops || !core?.hasBackend?.()) return null;
+    const tripId = String(departure?.tripId || "");
+    const mode = String(departure?.mode || stop?.mode || "").toLowerCase();
+    const operator = String(departure?.operator || stop?.operator || "").toLowerCase();
+    const looksDelijn = tripId.includes("delijn") || operator.includes("de lijn") || ["bus", "tram"].includes(mode);
+    const line = String(departure?.line || "").trim();
+    if (!looksDelijn || !line || /^trein$/i.test(line)) return null;
+
+    const data = await core.backendDelijnLineStops({
+      line,
+      area: String(stop?.municipality || "").trim(),
+      timeout: 5500
+    });
+    const routes = Array.isArray(data?.routes) ? data.routes.filter(r => Array.isArray(r?.stops) && r.stops.length >= 2) : [];
+    if (!routes.length) return null;
+
+    const curLat = Number(departure?.stopLatitude ?? stop?.lat ?? stop?.latitude);
+    const curLon = Number(departure?.stopLongitude ?? stop?.lon ?? stop?.longitude);
+    const dest = liveNorm(departure?.destination || "");
+
+    const scored = routes.map(route => {
+      const places = route.stops.map(backendStopToPlace).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+      if (places.length < 2) return null;
+      let nearest = Infinity, nearestIndex = 0;
+      places.forEach((p, i) => {
+        const d = liveDistanceMeters(curLat, curLon, p.lat, p.lon);
+        if (d < nearest) { nearest = d; nearestIndex = i; }
+      });
+      const last = liveNorm(places.at(-1)?.name || "");
+      const direction = liveNorm(route.directionName || "");
+      let destinationScore = 0;
+      if (dest && last && (last.includes(dest) || dest.includes(last))) destinationScore += 120;
+      if (dest && direction && direction.includes(dest)) destinationScore += 80;
+      // Location is decisive when public line numbers exist in several provinces.
+      const locationScore = Number.isFinite(nearest) ? Math.max(0, 100 - nearest / 1500) : 0;
+      return { route, places, nearest, nearestIndex, score: destinationScore + locationScore };
+    }).filter(Boolean).sort((a,b) => b.score - a.score || a.nearest - b.nearest);
+
+    const best = scored[0];
+    if (!best) return null;
+    const places = best.places;
+    const depTime = departure?.realtimeDeparture || departure?.plannedDeparture || null;
+    if (depTime && Number.isFinite(best.nearestIndex)) {
+      places[best.nearestIndex] = { ...places[best.nearestIndex], departure: depTime, scheduledDeparture: departure?.plannedDeparture || depTime };
+    }
+
+    return {
+      mode: String(departure?.mode || "BUS").toUpperCase(),
+      from: places[0],
+      to: places.at(-1),
+      intermediateStops: places.slice(1, -1),
+      routeShortName: line,
+      displayName: line,
+      headsign: String(departure?.destination || best.route.directionName || places.at(-1).name),
+      tripId,
+      startTime: places[0].departure || depTime,
+      endTime: null,
+      scheduledStartTime: places[0].scheduledDeparture || depTime,
+      scheduledEndTime: null,
+      realTime: Boolean(departure?.realtime),
+      source: "delijn-core"
+    };
+  }
+
   async function openDeparture(departure, stop = null, trigger = null) {
     if (!departure || departure.cancelled) return;
     const plannerBridge = window.OVFlowPlannerBridge;
@@ -212,7 +306,20 @@
       let bestInfo = null;
       let primaryError = null;
 
+      // 4.5: De Lijn Live Trip no longer depends on Transitous/MOTIS to open.
+      // Fetch the lightweight line stop order from our own backend first.
       try {
+        const directLeg = await delijnCoreLegForDeparture(departure, stop || {});
+        if (directLeg) bestInfo = usableLegInfo(directLeg);
+      } catch (error) {
+        console.debug("OVFlow De Lijn directe haltevolgorde:", error);
+        primaryError = error;
+      }
+
+      if (requestId !== liveDepartureRequest) return;
+
+      // Transitous remains a fallback for NMBS/other operators or if De Lijn Core fails.
+      if (!bestInfo) try {
         const payload = await core.transitousTrip(departure.tripId, {
           detailedLegs: false,
           timeout: 4200

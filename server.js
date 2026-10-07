@@ -2385,6 +2385,90 @@ app.get("/api/delijn/doorkomsten/:entiteit/:haltenummer", async (req, res) => {
   });
 });
 
+// OVFlow 4.5: lightweight De Lijn stop-order endpoint for opening Live Trip.
+// Deliberately excludes realtime passage fan-out: opening a line must stay fast.
+app.get("/api/v4/delijn/line-stops", async (req, res) => {
+  const requestedLine = cleanLine(sanitizeText(req.query.line || "", 30));
+  const area = sanitizeText(req.query.area || "", 80);
+  if (!requestedLine) return publicError(res, 400, "Lijnnummer ontbreekt.", "INVALID_LINE");
+
+  const cacheKey = `v4-line-stops:${requestedLine}:${normalizeSearchText(area)}`;
+  const cached = requestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return res.json({ ...cached.data, cached: true });
+
+  try {
+    const lijnen = await getAllLines();
+    const matches = findLineMatches(lijnen, requestedLine, area).slice(0, 4);
+    if (!matches.length) return publicError(res, 404, `Lijn ${requestedLine} niet gevonden.`, "LINE_NOT_FOUND");
+
+    const perLine = await Promise.all(matches.map(async lineInfo => {
+      const entiteit = String(lineInfo.entiteitnummer || "");
+      const intern = String(lineInfo.lijnnummer || "");
+      const publiek = String(lineInfo.lijnnummerPubliek || requestedLine);
+      if (!entiteit || !intern) return [];
+
+      const directionsResult = await tryEndpoints([
+        { base: BASES.kernApi, path: `/lijnen/${entiteit}/${intern}/lijnrichtingen` }
+      ], `v4 richtingen lijn ${publiek}`);
+
+      let directions = directionsResult.ok ? extractRichtingen(directionsResult.data) : [];
+      if (!directions.length) {
+        directions = [
+          { richting: "HEEN", omschrijving: `${lineInfo.omschrijving || publiek} HEEN` },
+          { richting: "TERUG", omschrijving: `${lineInfo.omschrijving || publiek} TERUG` }
+        ];
+      }
+
+      const routeResults = await Promise.all(directions.slice(0, 4).map(async direction => {
+        const code = getDirectionCode(direction);
+        if (!code) return null;
+        const name = getDirectionName(direction, code);
+        const stopsResult = await tryEndpoints([
+          { base: BASES.kernApi, path: `/lijnen/${entiteit}/${intern}/lijnrichtingen/${code}/haltes` }
+        ], `v4 haltes lijn ${publiek} ${code}`);
+        if (!stopsResult.ok) return null;
+
+        const rawStops = extractHaltes(stopsResult.data).map(stop => ({
+          ...stop,
+          richting: name,
+          richtingCode: code,
+          lijnnummerPubliek: publiek,
+          internLijnnummer: intern,
+          entiteitLijn: entiteit
+        }));
+        const stops = normalizeStops(rawStops);
+        if (stops.length < 2) return null;
+
+        return {
+          entity: entiteit,
+          internalLine: intern,
+          publicLine: publiek,
+          description: sanitizeText(lineInfo.omschrijving || "", 180),
+          directionCode: code,
+          directionName: name,
+          stops
+        };
+      }));
+      return routeResults.filter(Boolean);
+    }));
+
+    const routes = perLine.flat();
+    const body = {
+      ok: true,
+      line: requestedLine,
+      area,
+      routes,
+      routeCount: routes.length,
+      updatedAt: new Date().toISOString()
+    };
+    requestCache.set(cacheKey, { data: body, expiresAt: Date.now() + 5 * 60 * 1000 });
+    res.json(body);
+  } catch (error) {
+    console.error("OVFlow line-stops:", error.message);
+    publicError(res, 502, "Haltevolgorde kon niet worden opgehaald.", "LINE_STOPS_FAILED");
+  }
+});
+
 app.get("/api/delijn/lijnen/:lijn", async (req, res) => {
   const lineSearch = parseLineSearch(sanitizeText(req.params.lijn, 80));
   const requestedLine = lineSearch.line;
