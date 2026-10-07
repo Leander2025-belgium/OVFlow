@@ -127,6 +127,51 @@
 
   let liveDepartureRequest = 0;
 
+  function normalizeExternalLeg(rawLeg) {
+    if (!rawLeg) return null;
+    const plannerBridge = window.OVFlowPlannerBridge;
+    try {
+      if (rawLeg.type === "transit" && rawLeg.fromPlace && rawLeg.toPlace) return rawLeg;
+      return plannerBridge?.normalizeLeg ? plannerBridge.normalizeLeg(rawLeg) : null;
+    } catch (error) {
+      console.debug("OVFlow leg normaliseren:", error);
+      return null;
+    }
+  }
+
+  function usableLegInfo(rawLeg) {
+    const leg = normalizeExternalLeg(rawLeg);
+    if (!leg || leg.type !== "transit") return null;
+    const stops = [leg.fromPlace, ...(Array.isArray(leg.intermediateStops) ? leg.intermediateStops : []), leg.toPlace]
+      .filter(Boolean)
+      .filter(stop => stop.name && Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon)));
+    if (stops.length < 2) return null;
+    return {
+      leg,
+      stopCount: stops.length,
+      intermediateCount: Array.isArray(leg.intermediateStops) ? leg.intermediateStops.length : 0
+    };
+  }
+
+  function candidateFromPayload(payload, departure) {
+    if (!payload) return null;
+    const tripPayload = (payload?.ok && payload?.trip) ? payload.trip : payload;
+    const rawLeg = extractTripLeg(tripPayload, departure);
+    const info = usableLegInfo(rawLeg);
+    if (!info) return null;
+    const vehicle = payload.vehiclePosition || payload.vehicle || null;
+    if (vehicle && !vehicle.stale && Number.isFinite(Number(vehicle.lat ?? vehicle.latitude)) && Number.isFinite(Number(vehicle.lon ?? vehicle.longitude))) {
+      info.leg.vehiclePosition = {
+        lat: Number(vehicle.lat ?? vehicle.latitude),
+        lon: Number(vehicle.lon ?? vehicle.longitude),
+        exact: true,
+        timestamp: vehicle.timestamp || payload.vehicleUpdatedAt || null,
+        bearing: Number(vehicle.bearing || 0)
+      };
+    }
+    return info;
+  }
+
   async function openDeparture(departure, stop = null, trigger = null) {
     if (!departure || departure.cancelled) return;
     const plannerBridge = window.OVFlowPlannerBridge;
@@ -137,7 +182,6 @@
     }
 
     const requestId = ++liveDepartureRequest;
-    const originalText = trigger?.textContent || "";
     if (trigger) {
       trigger.disabled = true;
       trigger.classList.add("line-loading");
@@ -148,28 +192,61 @@
     try {
       if (!departure.tripId) throw new Error("Voor deze rit ontbreekt een trip-id.");
 
-      let trip = null;
-      let primaryError = null;
-      try {
-        // Lightweight trip: stops + realtime times, without the heavy encoded
-        // route geometry that could freeze Safari on long bus routes.
-        trip = await core.transitousTrip(departure.tripId, { detailedLegs: false, timeout: 6500 });
-      } catch (error) {
-        primaryError = error;
+      // Vraag meerdere lichte bronnen tegelijk op en kies daarna degene die
+      // daadwerkelijk de rijkste haltevolgorde bevat. Een lege /trip-leg mag
+      // Live Trip nooit meer blokkeren zonder de fetchStops-fallback te proberen.
+      const tasks = [
+        core.transitousTrip(departure.tripId, { detailedLegs: false, timeout: 6500 }),
+        core.transitousTripFromDeparture(departure, stop || {}, { timeout: 6500 })
+      ];
+      if (core?.hasBackend?.()) {
+        tasks.push(core.backendLiveTrip(departure.tripId, departure.line || "", { timeout: 6500 }));
+      }
+
+      const settled = await Promise.allSettled(tasks);
+      if (requestId !== liveDepartureRequest) return;
+
+      const candidates = settled
+        .filter(result => result.status === "fulfilled")
+        .map(result => candidateFromPayload(result.value, departure))
+        .filter(Boolean)
+        .sort((a, b) => {
+          // Alle haltes zijn belangrijker dan geometrie of een snelle eerste response.
+          if (b.stopCount !== a.stopCount) return b.stopCount - a.stopCount;
+          return b.intermediateCount - a.intermediateCount;
+        });
+
+      if (!candidates.length) {
+        const reasons = settled
+          .filter(result => result.status === "rejected")
+          .map(result => result.reason?.message)
+          .filter(Boolean);
+        throw new Error(reasons[0] || "De haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
+      }
+
+      const best = candidates[0].leg;
+
+      // Als de backend aanwezig is maar het gekozen halteprofiel uit MOTIS kwam,
+      // haal de exacte GPS nog los op zonder de start van de Live Trip te blokkeren.
+      if (!best.vehiclePosition && core?.hasBackend?.()) {
+        try {
+          const exact = await core.backendVehiclePosition(departure.tripId, departure.line || "", { timeout: 3500 });
+          if (exact?.position && !exact.position.stale) {
+            best.vehiclePosition = {
+              lat: Number(exact.position.lat),
+              lon: Number(exact.position.lon),
+              exact: true,
+              timestamp: exact.position.timestamp || exact.updatedAt || null,
+              bearing: Number(exact.position.bearing || 0)
+            };
+          }
+        } catch (error) {
+          console.debug("OVFlow exacte voertuigpositie niet beschikbaar:", error);
+        }
       }
 
       if (requestId !== liveDepartureRequest) return;
-
-      let leg = trip ? extractTripLeg(trip, departure) : null;
-      if (!leg && core?.transitousTripFromDeparture) {
-        bridge?.toast?.(`Lijn ${departure.line || "—"}: haltevolgorde ophalen…`);
-        const fallback = await core.transitousTripFromDeparture(departure, stop || {}, { timeout: 5500 });
-        if (requestId !== liveDepartureRequest) return;
-        leg = extractTripLeg(fallback, departure);
-      }
-
-      if (!leg) throw primaryError || new Error("De volledige rit kon niet worden gevonden.");
-      plannerBridge.startLiveTripFromExternalLeg(leg);
+      plannerBridge.startLiveTripFromExternalLeg(best);
     } catch (error) {
       if (requestId !== liveDepartureRequest) return;
       console.error("OVFlow live departure:", error);
@@ -182,7 +259,6 @@
         trigger.disabled = false;
         trigger.classList.remove("line-loading");
         trigger.removeAttribute("aria-busy");
-        if (!trigger.textContent.trim() && originalText) trigger.textContent = originalText;
       }
     }
   }

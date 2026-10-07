@@ -3114,7 +3114,7 @@ body.ovflow-v40 .departure-live-line{background:#1677ff!important;color:#fff!imp
 }
 
 
-/* OVFlow 4.3.1 — responsive line opening */
+/* OVFlow 4.4 — responsive line opening */
 .departure-live-line.line-loading,.nearby-departure.line-loading{opacity:.72;cursor:wait;pointer-events:none}
 .departure-live-line.line-loading{position:relative;color:transparent!important}
 .departure-live-line.line-loading::after{content:"";position:absolute;left:50%;top:50%;width:15px;height:15px;margin:-7.5px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;color:#1677ff}

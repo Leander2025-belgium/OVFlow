@@ -2,7 +2,7 @@
   "use strict";
 
   /*
-   * OVFlow 4.3 public-data client
+   * OVFlow 4.4 hybrid public-data client
    *
    * Important design rule: the browser must work on static hosting too.
    * Therefore this client does NOT probe /api/* endpoints by default.
@@ -13,6 +13,7 @@
 
   const cfg = window.OVFLOW_CONFIG || {};
   const TRANSITOUS_BASE = String(cfg.TRANSITOUS_BASE || "https://api.transitous.org").replace(/\/$/, "");
+  const API_BASE = String(cfg.API_BASE || "").trim().replace(/\/$/, "");
   const JSON_HEADERS = { Accept: "application/json" };
   const cache = new Map();
 
@@ -215,7 +216,7 @@
   async function transitousStopTimes({
     stopId = "", lat, lon, radius = 120, max = 8,
     time = null, windowSeconds = null, direction = "LATER", minimumEvents = null,
-    exactRadius = false, fetchStops = false, timeout = 12000
+    exactRadius = false, fetchStops = false, arriveBy = false, both = false, timeout = 12000
   }) {
     const url = new URL(`${TRANSITOUS_BASE}/api/v6/stoptimes`);
     if (stopId) {
@@ -237,8 +238,8 @@
     }
 
     url.searchParams.set("n", String(clamp(minimumEvents ?? max, 1, 300)));
-    url.searchParams.set("arriveBy", "false");
-    url.searchParams.set("both", "false");
+    url.searchParams.set("arriveBy", String(Boolean(arriveBy)));
+    url.searchParams.set("both", String(Boolean(both)));
     url.searchParams.set("direction", String(direction || "LATER").toUpperCase() === "EARLIER" ? "EARLIER" : "LATER");
     url.searchParams.set("realtimeMode", "REALTIME");
     url.searchParams.set("language", "nl");
@@ -316,6 +317,35 @@
     };
   }
 
+
+  function hasBackend() {
+    return Boolean(API_BASE);
+  }
+
+  async function backendLiveTrip(tripId, line = "", options = {}) {
+    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
+    const id = String(tripId || "").trim();
+    if (!id) throw new Error("Deze rit heeft geen trip-id.");
+    const url = new URL(`${API_BASE}/api/v4/trips/live`);
+    url.searchParams.set("tripId", id);
+    if (line) url.searchParams.set("line", String(line));
+    const { response, data } = await fetchJson(url, { timeout: options.timeout || 7000 });
+    if (!response.ok) throw new Error(data?.message || `OVFlow live backend HTTP ${response.status}`);
+    return data;
+  }
+
+  async function backendVehiclePosition(tripId, line = "", options = {}) {
+    if (!API_BASE) return null;
+    const id = String(tripId || "").trim();
+    if (!id) return null;
+    const url = new URL(`${API_BASE}/api/v4/vehicle-position`);
+    url.searchParams.set("tripId", id);
+    if (line) url.searchParams.set("line", String(line));
+    const { response, data } = await fetchJson(url, { timeout: options.timeout || 4500 });
+    if (!response.ok || !data?.position || data.position.stale) return null;
+    return data;
+  }
+
   async function transitousTrip(tripId, options = {}) {
     const id = String(tripId || "").trim();
     if (!id) throw new Error("Deze rit heeft geen trip-id.");
@@ -337,20 +367,30 @@
   function stopEventLeg(event, fallbackDeparture = {}) {
     const raw = event?.rawStopTime || event || {};
     const current = raw?.place || {};
+    const previous = asArray(raw?.previousStops).filter(Boolean);
     const following = asArray(raw?.nextStops).filter(Boolean);
-    const finalPlace = following.at(-1) || raw?.tripTo || null;
-    if (!current?.name || !finalPlace?.name) return null;
+    const firstPlace = previous[0] || raw?.tripFrom || current;
+    const finalPlace = following.at(-1) || raw?.tripTo || current;
+    if (!current?.name || !firstPlace?.name || !finalPlace?.name) return null;
 
-    const intermediateStops = following.length > 1 ? following.slice(0, -1) : [];
+    // Build the complete trip order when both previousStops and nextStops are
+    // available. When MOTIS only supplies one side, this gracefully becomes
+    // the remaining portion of the trip instead of returning no Live Trip.
+    const middle = [
+      ...previous.slice(1),
+      ...(firstPlace !== current ? [current] : []),
+      ...following.slice(0, -1)
+    ];
+
     return {
       mode: raw.mode || String(fallbackDeparture.mode || "BUS").toUpperCase(),
-      from: current,
+      from: firstPlace,
       to: finalPlace,
-      startTime: current.departure || current.arrival || fallbackDeparture.realtimeDeparture || fallbackDeparture.plannedDeparture || null,
+      startTime: firstPlace.departure || firstPlace.arrival || fallbackDeparture.realtimeDeparture || fallbackDeparture.plannedDeparture || null,
       endTime: finalPlace.arrival || finalPlace.departure || null,
-      scheduledStartTime: current.scheduledDeparture || current.scheduledArrival || fallbackDeparture.plannedDeparture || null,
+      scheduledStartTime: firstPlace.scheduledDeparture || firstPlace.scheduledArrival || fallbackDeparture.plannedDeparture || null,
       scheduledEndTime: finalPlace.scheduledArrival || finalPlace.scheduledDeparture || null,
-      intermediateStops,
+      intermediateStops: middle,
       tripId: raw.tripId || fallbackDeparture.tripId || "",
       tripShortName: raw.tripShortName || "",
       routeShortName: raw.routeShortName || fallbackDeparture.line || "",
@@ -360,8 +400,6 @@
       realTime: Boolean(raw.realTime ?? fallbackDeparture.realtime),
       cancelled: Boolean(raw.cancelled || raw.tripCancelled),
       agencyName: raw.agencyName || fallbackDeparture.operator || "",
-      // Intentionally no legGeometry here: the Live Trip map will connect the
-      // actual stop coordinates and stay responsive even on long routes.
       legGeometry: null
     };
   }
@@ -371,37 +409,63 @@
     if (!tripId) throw new Error("Deze rit heeft geen trip-id.");
 
     const departureTime = parseDate(departure?.realtimeDeparture || departure?.plannedDeparture) || new Date();
-    const queryTime = new Date(departureTime.getTime() - 90_000);
     const stopId = String(departure?.stopId || stop?.transitousId || stop?.id || "");
     const lat = Number(departure?.stopLatitude ?? stop?.lat ?? stop?.latitude);
     const lon = Number(departure?.stopLongitude ?? stop?.lon ?? stop?.longitude ?? stop?.lng);
-    const common = {
-      max: 24,
-      minimumEvents: 24,
-      time: queryTime,
-      windowSeconds: 12 * 60,
-      direction: "LATER",
-      fetchStops: true,
-      timeout: Math.max(2500, Math.min(9000, Number(options.timeout || 6000)))
-    };
+    const timeout = Math.max(2500, Math.min(9000, Number(options.timeout || 6000)));
 
-    let board = null;
-    if (stopId && !/^\d{1,3}-\d+$/.test(stopId)) {
-      try { board = await transitousStopTimes({ ...common, stopId }); } catch {}
+    async function loadBoard(direction, arriveBy, offsetMs) {
+      const common = {
+        max: 32,
+        minimumEvents: 24,
+        time: new Date(departureTime.getTime() + offsetMs),
+        windowSeconds: 15 * 60,
+        direction,
+        arriveBy,
+        fetchStops: true,
+        timeout
+      };
+      if (stopId && !/^\d{1,3}-\d+$/.test(stopId)) {
+        try { return await transitousStopTimes({ ...common, stopId }); } catch {}
+      }
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        try { return await transitousStopTimes({ ...common, lat, lon, radius: 140 }); } catch {}
+      }
+      return null;
     }
-    if (!board && Number.isFinite(lat) && Number.isFinite(lon)) {
-      board = await transitousStopTimes({ ...common, lat, lon, radius: 140 });
-    }
-    if (!board) throw new Error("De ritgegevens konden niet via de halte worden opgehaald.");
+
+    const [forward, backward] = await Promise.all([
+      loadBoard("LATER", false, -90_000),
+      loadBoard("EARLIER", true, 90_000)
+    ]);
 
     const line = String(departure?.line || "").trim().toLowerCase();
-    const match = board.departures.find(item => String(item.tripId || "") === tripId)
-      || board.departures.find(item => line && String(item.line || "").trim().toLowerCase() === line);
-    const leg = stopEventLeg(match, departure);
-    if (!leg || !Array.isArray(leg.intermediateStops)) {
-      throw new Error("De haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
+    const findMatch = board => board?.departures?.find(item => String(item.tripId || "") === tripId)
+      || board?.departures?.find(item => line && String(item.line || "").trim().toLowerCase() === line)
+      || null;
+
+    const forwardMatch = findMatch(forward);
+    const backwardMatch = findMatch(backward);
+    if (!forwardMatch && !backwardMatch) {
+      throw new Error("De ritgegevens konden niet via de halte worden opgehaald.");
     }
-    return { legs: [leg], source: "stoptimes-fallback" };
+
+    const forwardRaw = forwardMatch?.rawStopTime || null;
+    const backwardRaw = backwardMatch?.rawStopTime || null;
+    const raw = {
+      ...(backwardRaw || {}),
+      ...(forwardRaw || {}),
+      previousStops: asArray(backwardRaw?.previousStops || forwardRaw?.previousStops).filter(Boolean),
+      nextStops: asArray(forwardRaw?.nextStops || backwardRaw?.nextStops).filter(Boolean),
+      place: forwardRaw?.place || backwardRaw?.place || null,
+      tripId: forwardRaw?.tripId || backwardRaw?.tripId || tripId
+    };
+
+    const leg = stopEventLeg({ rawStopTime: raw }, departure);
+    if (!leg || !Array.isArray(leg.intermediateStops)) {
+      throw new Error("De volledige haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
+    }
+    return { legs: [leg], source: "stoptimes-full-trip-fallback" };
   }
 
   async function stopDepartures(stopOrEntity, maybeStopNumber, maybeMax = 8) {
@@ -561,7 +625,7 @@
       v4: false,
       legacy: false,
       public: true,
-      source: "Transitous / MOTIS"
+      source: API_BASE ? "OVFlow backend + Transitous / MOTIS" : "Transitous / MOTIS"
     };
   }
 
@@ -571,8 +635,8 @@
     // enough for this lightweight UI indicator and avoids 404 spam completely.
     return {
       ok: navigator.onLine !== false,
-      mode: "public",
-      source: "Transitous / MOTIS"
+      mode: API_BASE ? "hybrid" : "public",
+      source: API_BASE ? "OVFlow backend + Transitous / MOTIS" : "Transitous / MOTIS"
     };
   }
 
@@ -587,6 +651,9 @@
     fetchJson,
     transitousStopTimes,
     transitousTrip,
-    transitousTripFromDeparture
+    transitousTripFromDeparture,
+    backendLiveTrip,
+    backendVehiclePosition,
+    hasBackend
   };
 })();

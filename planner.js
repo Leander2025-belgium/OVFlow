@@ -33,6 +33,7 @@
       watchId: null,
       tickTimer: null,
       refreshTimer: null,
+      vehicleTimer: null,
       wakeLock: null,
       followMap: false,
       warnedReady: false,
@@ -2185,6 +2186,29 @@
 
 
 
+  async function refreshExactVehiclePosition() {
+    const live = planner.live;
+    if (!live?.active || !live.leg?.tripId || !core?.hasBackend?.()) return;
+    try {
+      const result = await core.backendVehiclePosition(live.leg.tripId, live.leg.line || "", { timeout: 4500 });
+      if (!result?.position || result.position.stale) return;
+      const lat = Number(result.position.lat);
+      const lon = Number(result.position.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      live.leg.vehiclePosition = {
+        lat,
+        lon,
+        exact: true,
+        timestamp: result.position.timestamp || result.updatedAt || null,
+        bearing: Number(result.position.bearing || 0)
+      };
+      live.lastExactVehicleAt = Date.now();
+      renderLiveTrip();
+    } catch (error) {
+      console.debug("OVFlow voertuig-GPS refresh:", error);
+    }
+  }
+
   function freshLivePosition() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
@@ -2488,6 +2512,7 @@
       watchId: null,
       tickTimer: null,
       refreshTimer: null,
+      vehicleTimer: null,
       wakeLock: null,
       followMap: false,
       warnedReady: false,
@@ -2539,6 +2564,10 @@
 
     live.tickTimer = setInterval(renderLiveTrip, 10000);
     live.refreshTimer = setInterval(refreshLiveTripData, 60000);
+    if (core?.hasBackend?.()) {
+      refreshExactVehiclePosition();
+      live.vehicleTimer = setInterval(refreshExactVehiclePosition, 15000);
+    }
 
     $("#liveTripSession").scrollIntoView({ behavior: "smooth", block: "start" });
     toast("Live Trip gestart");
@@ -2557,11 +2586,13 @@
     }
     if (live.tickTimer) clearInterval(live.tickTimer);
     if (live.refreshTimer) clearInterval(live.refreshTimer);
+    if (live.vehicleTimer) clearInterval(live.vehicleTimer);
     if (live.wakeLock) Promise.resolve(live.wakeLock.release()).catch(() => {});
 
     live.watchId = null;
     live.tickTimer = null;
     live.refreshTimer = null;
+    live.vehicleTimer = null;
     live.wakeLock = null;
     live.followMap = false;
 
@@ -2783,7 +2814,7 @@
   function startLiveTripFromExternalLeg(rawLeg) {
     if (!rawLeg) throw new Error("Geen ritgegevens ontvangen");
 
-    const normalized = rawLeg.type ? rawLeg : normalizeLeg(rawLeg);
+    const normalized = (rawLeg.type === "transit" && rawLeg.fromPlace && rawLeg.toPlace) ? rawLeg : normalizeLeg(rawLeg);
     if (!normalized || normalized.type !== "transit") {
       throw new Error("Geen geldige OV-rit gevonden");
     }

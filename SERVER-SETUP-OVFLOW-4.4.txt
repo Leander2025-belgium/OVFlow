@@ -1,0 +1,32 @@
+OVFlow 4.4 - server voor exacte De Lijn live locatie
+
+1. Gebruik server.js uit deze map op je OVFlow-server.
+2. Zorg dat Node.js 18+ aanwezig is.
+3. Voer uit:
+   npm install
+
+4. Zet in .env minimaal:
+   PORT=3000
+   DELIJN_GTFS_API_KEY=JOUW_DE_LIJN_GTFS_REALTIME_KEY
+   DELIJN_CORE_API_KEY=JOUW_DE_LIJN_OPEN_DATA_KEY
+   CORS_ORIGIN=https://JOUW-OVFLOW-FRONTEND-DOMEIN
+
+   DELIJN_GTFS_API_KEY mag dezelfde waarde krijgen als DELIJN_API_KEY wanneer jouw abonnement beide APIs dekt.
+
+5. Start/test:
+   npm start
+   curl http://127.0.0.1:3000/api/health
+
+6. Test daarna de nieuwe live endpoint met een echte tripId uit de browserconsole/netwerkdata:
+   curl 'http://127.0.0.1:3000/api/v4/vehicle-position?tripId=TRIP_ID'
+
+7. Publiceer de server achter HTTPS, bijvoorbeeld via Cloudflare Tunnel/reverse proxy.
+
+8. Vul in config.js van de frontend in:
+   API_BASE: "https://JOUW-PUBLIEKE-OVFLOW-API"
+
+9. Deploy de frontend opnieuw. De PWA-cache heet ovflow-static-4.4.0.
+
+Gedrag:
+- API_BASE leeg: haltes + rit via Transitous, voertuigpositie geschat uit realtime tijden.
+- API_BASE ingesteld + geldige De Lijn GTFS key: exacte De Lijn GPS indien de feed een VehiclePosition voor die tripId bevat.
