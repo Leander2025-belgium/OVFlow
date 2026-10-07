@@ -84,11 +84,9 @@
     const hasStop = !!state.stop?.stop;
     $("#activeStopName").textContent = hasStop ? (state.stop.name || `Halte ${state.stop.stop}`) : "Kies een halte";
     $("#activeStopCode").textContent = hasStop
-      ? `De Lijn halte ${state.stop.stop}${state.stop.entity ? ` · entiteit ${state.stop.entity}` : ""}`
-      : "Zoek hierboven om live doorkomsten te zien";
+      ? "Vertrekken van 5 min geleden tot 3 uur vooruit"
+      : "Zoek hierboven om alle actuele vertrektijden te zien";
 
-    const maxSelect = $("#maxDeparturesSelect");
-    if (maxSelect) maxSelect.value = String(state.stop.maxDepartures || 6);
   }
 
   function parseDate(raw) {
@@ -167,39 +165,42 @@
     const container = $("#departures");
     container.innerHTML = "";
 
+    const upcoming = items.filter(i => (minutesUntil(i.effectiveDate) ?? -999) >= 0);
     $("#departureCount").textContent = String(items.length);
     $("#delayCount").textContent = String(items.filter(i => Number(i.delayMinutes) > 1).length);
 
     if (!items.length) {
       $("#nextDeparture").textContent = "—";
       $("#insightNextLine").textContent = "Geen rit gevonden";
-      $("#insightNextMeta").textContent = "Voor deze halte zijn nu geen doorkomsten beschikbaar.";
+      $("#insightNextMeta").textContent = "Geen vertrekken in het venster van -5 min tot +3 uur.";
       $("#emptyCard").classList.remove("hidden");
       return;
     }
 
     $("#emptyCard").classList.add("hidden");
-    const first = items[0];
+    const first = upcoming[0] || items.at(-1);
     const mins = minutesUntil(first.effectiveDate);
     $("#nextDeparture").textContent = mins == null ? "—" : mins <= 0 ? "Nu" : `${mins} min`;
     $("#insightNextLine").textContent = `Lijn ${first.line} → ${first.destination}`;
     $("#insightNextMeta").textContent = `${formatTime(first.effectiveDate)} · ${mins == null ? "live" : mins <= 0 ? "vertrekt nu" : `over ${mins} min`}`;
 
-    container.innerHTML = items.map(item => {
+    container.innerHTML = items.map((item, index) => {
       const minsAway = minutesUntil(item.effectiveDate);
       const delayed = Number(item.delayMinutes) > 1;
       const isRealtime = !!item.realtimeDate;
+      const justPassed = minsAway != null && minsAway < 0 && minsAway >= -5;
       let status = isRealtime ? "Realtime" : "Gepland";
       let cls = isRealtime ? "" : "scheduled";
-      if (delayed) { status = `+${item.delayMinutes} min`; cls = "delay"; }
+      if (justPassed) { status = `${Math.abs(minsAway)} min geleden`; cls = "passed"; }
+      else if (delayed) { status = `+${item.delayMinutes} min`; cls = "delay"; }
       else if (minsAway != null && minsAway <= 1) status = "Nu";
 
       return `
-        <article class="departure-card">
-          <div class="line-badge">${escapeHTML(item.line)}</div>
+        <article class="departure-card ${justPassed ? "departure-passed" : ""}">
+          <button class="line-badge departure-live-line" type="button" data-live-departure-index="${index}" aria-label="Volg lijn ${escapeHTML(item.line)} live">${escapeHTML(item.line)}</button>
           <div class="departure-main">
             <strong>${escapeHTML(item.destination)}</strong>
-            <span>${isRealtime ? "Live doorkomst" : "Volgens dienstregeling"} · De Lijn</span>
+            <span>${isRealtime ? "Realtime vertrek" : "Dienstregeling"} · tik op de lijn voor live rit</span>
           </div>
           <div class="departure-time">
             <strong>${formatTime(item.effectiveDate)}</strong>
@@ -207,22 +208,30 @@
           </div>
         </article>`;
     }).join("");
+
+    container.querySelectorAll("[data-live-departure-index]").forEach(button => {
+      button.addEventListener("click", () => {
+        const item = items[Number(button.dataset.liveDepartureIndex)];
+        if (!item?.raw) return;
+        window.OVFlowUI?.openDeparture?.(item.raw, state.stop);
+      });
+    });
   }
 
   function errorDescription(error) {
     const message = String(error?.message || error || "");
     if (/401/.test(message)) return ["OVFlow Core geweigerd", "De server kon de vervoersbron niet aanmelden."];
     if (/403/.test(message)) return ["Geen toegang tot live-data", "OVFlow Core kreeg geen toegang tot de vervoersbron."];
-    if (/404/.test(message)) return ["Realtime halte niet gevonden", "De halte werd op de kaart gevonden, maar De Lijn herkende dit haltenummer niet voor realtime-data."];
-    if (/429/.test(message)) return ["Te veel aanvragen", "De Lijn heeft tijdelijk een rate-limit toegepast."];
+    if (/404/.test(message)) return ["Realtime halte niet gevonden", "De halte werd gevonden, maar de realtime databron kon deze halte niet openen."];
+    if (/429/.test(message)) return ["Te veel aanvragen", "De publieke vervoersbron heeft tijdelijk een rate-limit toegepast."];
     if (/Failed to fetch|NetworkError|CORS|Load failed/i.test(message)) {
       return ["Browser blokkeert de API-oproep", "Waarschijnlijk CORS of netwerk. Open OVFlow via http://localhost in plaats van rechtstreeks via file://."];
     }
-    return ["Live data kon niet worden geladen", message || "Onbekende fout bij De Lijn."];
+    return ["Live data kon niet worden geladen", message || "Onbekende fout bij de vervoersbron."];
   }
 
   async function resolveEntityIfNeeded() {
-    // OVFlow 4.2 gebruikt coördinaten/Transitous-id's en heeft geen De Lijn-entiteitnummer nodig.
+    // OVFlow 4.3 gebruikt coördinaten/Transitous-id's en heeft geen De Lijn-entiteitnummer nodig.
     return;
   }
 
@@ -233,7 +242,7 @@
       $("#departures").innerHTML = "";
       $("#emptyCard").classList.remove("hidden");
       $("#emptyCard strong").textContent = "Zoek eerst een halte";
-      $("#emptyCard span").textContent = "Kies bovenaan een echte De Lijn-halte om de doorkomsten te laden.";
+      $("#emptyCard span").textContent = "Zoek bovenaan een halte of station om de vertrektijden te laden.";
       setApiState("loading", "Kies halte");
       return;
     }
@@ -250,7 +259,11 @@
     try {
       await resolveEntityIfNeeded();
       if (!core) throw new Error("OVFlow dataclient ontbreekt");
-      const data = await core.stopDepartures(state.stop, Number(state.stop.maxDepartures || 6));
+      const data = core.stopDeparturesWindow
+        ? await core.stopDeparturesWindow(state.stop, { pastMinutes: 5, futureMinutes: 180, max: 300 })
+        : await core.stopDepartures(state.stop, 300);
+      const rangeStart = new Date(Date.now() - 5 * 60_000);
+      const rangeEnd = new Date(Date.now() + 180 * 60_000);
       const departures = (data.departures || []).map(item => ({
         line: item.line || "—",
         destination: item.destination || "Onbekende richting",
@@ -259,7 +272,7 @@
         effectiveDate: parseDate(item.realtimeDeparture || item.plannedDeparture),
         delayMinutes: Number(item.delayMinutes || 0),
         raw: item
-      })).filter(item => item.effectiveDate);
+      })).filter(item => item.effectiveDate && item.effectiveDate >= rangeStart && item.effectiveDate <= rangeEnd);
 
       $("#loadingCard").classList.add("hidden");
       renderDepartures(departures);
@@ -462,7 +475,7 @@
         <span class="stop-result-icon"><svg viewBox="0 0 24 24"><path d="M7 18V7c0-2 2-3 5-3s5 1 5 3v11"></path><path d="M9 9h6M8 13h8"></path></svg></span>
         <span class="stop-result-copy">
           <strong>${escapeHTML(stop.name)}</strong>
-          <span>${escapeHTML([stop.municipality, stop.street, stop.stop ? `halte ${stop.stop}` : ""].filter(Boolean).join(" · "))}</span>
+          <span>${escapeHTML([stop.municipality, stop.street, stop.stopCode ? `halte ${stop.stopCode}` : ""].filter(Boolean).join(" · ") || "Openbaar vervoer")}</span>
         </span>
         <span class="stop-result-distance">→</span>
       </button>`).join("");
@@ -510,18 +523,23 @@
 
     searchDebounce = setTimeout(async () => {
       try {
-        await ensureStopsLoaded();
-        const results = searchStops(query);
+        $("#stopSearchStatus").textContent = "Haltes zoeken…";
+        const results = core?.searchPlaces
+          ? await core.searchPlaces(query, 12)
+          : (await ensureStopsLoaded(), searchStops(query));
         $("#stopSearchStatus").textContent = `${results.length} beste resultaten`;
         renderStopResults(results);
-      } catch {}
+      } catch (error) {
+        console.error("OVFlow halte zoeken:", error);
+        $("#stopSearchStatus").textContent = "Zoeken mislukt · probeer opnieuw";
+      }
     }, 260);
   });
 
   $("#clearSearchButton").addEventListener("click", () => {
     $("#stopSearchInput").value = "";
     $("#stopResults").classList.add("hidden");
-    $("#stopSearchStatus").textContent = state.stopsLoaded ? `${state.stops.length.toLocaleString("nl-BE")} echte haltes klaar` : "Zoek in echte De Lijn-haltes";
+    $("#stopSearchStatus").textContent = "Zoek in haltes en stations";
     $("#stopSearchInput").focus();
   });
 
@@ -814,46 +832,8 @@
   $("#sheetBackdrop").addEventListener("click", closeSettings);
 
   $("#saveSettings").addEventListener("click", () => {
-    state.stop = {
-      ...state.stop,
-      maxDepartures: Number($("#maxDeparturesSelect")?.value || 6)
-    };
-    saveStop();
-    updateStopUI();
     closeSettings();
-    toast("Instellingen opgeslagen");
   });
-
-  $$(".nav-item[data-target]").forEach(button => {
-    button.addEventListener("click", () => {
-      $$(".nav-item[data-target]").forEach(item => item.classList.remove("active"));
-      button.classList.add("active");
-      const target = button.dataset.target;
-
-      if (target === "home") {
-        $("#homeDashboard")?.scrollIntoView({ behavior:"smooth", block:"start" });
-      }
-
-      if (target === "plan") {
-        $("#journeyPlanner")?.scrollIntoView({ behavior:"smooth", block:"start" });
-        setTimeout(() => $("#plannerFrom")?.focus(), 450);
-      }
-
-      if (target === "live") {
-        const liveSession = $("#liveTripSession");
-        const destination =
-          liveSession && !liveSession.classList.contains("hidden")
-            ? liveSession
-            : $("#quickLivePanel");
-        destination?.scrollIntoView({ behavior:"smooth", block:"start" });
-      }
-
-      if (target === "stops") {
-        $(".departures-panel")?.scrollIntoView({ behavior:"smooth", block:"start" });
-      }
-    });
-  });
-
 
   // OVFlow 2.0 home quick actions.
   $("#homePlanAction")?.addEventListener("click", () => {
@@ -928,6 +908,155 @@
 
   let liveTripUserMarker = null;
   let liveTripNextMarker = null;
+  let liveTripInlineMap = null;
+  let liveTripInlineReady = null;
+  let liveTripInlineVehicleMarker = null;
+  let liveTripInlineNextMarker = null;
+  let liveTripInlineSignature = "";
+
+  function ovflowRasterStyle() {
+    return {
+      version: 8,
+      sources: {
+        osm: {
+          type: "raster",
+          tiles: [
+            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          ],
+          tileSize: 256,
+          attribution: "© OpenStreetMap contributors"
+        }
+      },
+      layers: [{ id: "osm", type: "raster", source: "osm" }]
+    };
+  }
+
+  async function ensureLiveTripInlineMap() {
+    const container = $("#liveTripInlineMap");
+    if (!container) return null;
+    if (liveTripInlineMap) return liveTripInlineMap;
+    if (liveTripInlineReady) return liveTripInlineReady;
+
+    liveTripInlineReady = (async () => {
+      await ensureMapLibrary();
+      const map = new maplibregl.Map({
+        container,
+        center: [4.35, 50.85],
+        zoom: 8.5,
+        attributionControl: true,
+        style: ovflowRasterStyle()
+      });
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+      await new Promise(resolve => map.once("load", resolve));
+      liveTripInlineMap = map;
+      setTimeout(() => map.resize(), 40);
+      return map;
+    })().catch(error => {
+      liveTripInlineReady = null;
+      console.error("OVFlow inline live map:", error);
+      const el = $("#liveTripInlineMap");
+      if (el) el.innerHTML = '<div class="live-inline-map-error">Kaart kon niet laden</div>';
+      return null;
+    });
+    return liveTripInlineReady;
+  }
+
+  function cleanLegCoordinates(leg, stops = []) {
+    const coords = Array.isArray(leg?.coordinates)
+      ? leg.coordinates
+          .filter(p => Array.isArray(p) && p.length >= 2)
+          .map(p => [Number(p[0]), Number(p[1])])
+          .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+      : [];
+    if (coords.length >= 2) return coords;
+    return (Array.isArray(stops) ? stops : [])
+      .map(stop => [Number(stop.lon), Number(stop.lat)])
+      .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  }
+
+  async function updateLiveTripInlineMap(payload = {}) {
+    const map = await ensureLiveTripInlineMap();
+    if (!map) return;
+    const { leg, stops = [], vehiclePosition, nextStop } = payload;
+    const coords = cleanLegCoordinates(leg, stops);
+    const validStops = (Array.isArray(stops) ? stops : []).filter(stop =>
+      Number.isFinite(Number(stop.lon)) && Number.isFinite(Number(stop.lat))
+    );
+
+    if (coords.length >= 2) {
+      const routeData = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } };
+      if (map.getSource("live-route")) map.getSource("live-route").setData(routeData);
+      else {
+        map.addSource("live-route", { type: "geojson", data: routeData });
+        map.addLayer({
+          id: "live-route-glow", type: "line", source: "live-route",
+          paint: { "line-color": "#60aefb", "line-width": 11, "line-opacity": 0.18 }
+        });
+        map.addLayer({
+          id: "live-route-line", type: "line", source: "live-route",
+          paint: { "line-color": "#4da9ff", "line-width": 5, "line-opacity": 0.96 }
+        });
+      }
+    }
+
+    const stopData = {
+      type: "FeatureCollection",
+      features: validStops.map((stop, index) => ({
+        type: "Feature",
+        properties: { index, name: stop.name || "Halte" },
+        geometry: { type: "Point", coordinates: [Number(stop.lon), Number(stop.lat)] }
+      }))
+    };
+    if (map.getSource("live-stops")) map.getSource("live-stops").setData(stopData);
+    else {
+      map.addSource("live-stops", { type: "geojson", data: stopData });
+      map.addLayer({
+        id: "live-stops", type: "circle", source: "live-stops",
+        paint: {
+          "circle-radius": 5,
+          "circle-color": "#f8fbff",
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#307fd8"
+        }
+      });
+    }
+
+    if (vehiclePosition && Number.isFinite(Number(vehiclePosition.lon)) && Number.isFinite(Number(vehiclePosition.lat))) {
+      if (!liveTripInlineVehicleMarker) {
+        const el = document.createElement("div");
+        el.className = "live-map-vehicle";
+        el.innerHTML = '<span></span>';
+        liveTripInlineVehicleMarker = new maplibregl.Marker({ element: el, anchor: "center" })
+          .setLngLat([Number(vehiclePosition.lon), Number(vehiclePosition.lat)])
+          .addTo(map);
+      } else {
+        liveTripInlineVehicleMarker.setLngLat([Number(vehiclePosition.lon), Number(vehiclePosition.lat)]);
+      }
+    }
+
+    if (nextStop && Number.isFinite(Number(nextStop.lon)) && Number.isFinite(Number(nextStop.lat))) {
+      if (!liveTripInlineNextMarker) {
+        const el = document.createElement("div");
+        el.className = "live-map-next-stop";
+        el.textContent = "↓";
+        liveTripInlineNextMarker = new maplibregl.Marker({ element: el, anchor: "center" })
+          .setLngLat([Number(nextStop.lon), Number(nextStop.lat)])
+          .addTo(map);
+      } else {
+        liveTripInlineNextMarker.setLngLat([Number(nextStop.lon), Number(nextStop.lat)]);
+      }
+    }
+
+    const signature = `${leg?.tripId || leg?.line || "trip"}|${validStops.length}`;
+    if (signature !== liveTripInlineSignature && (coords.length || validStops.length)) {
+      liveTripInlineSignature = signature;
+      const bounds = new maplibregl.LngLatBounds();
+      (coords.length ? coords : validStops.map(stop => [Number(stop.lon), Number(stop.lat)])).forEach(c => bounds.extend(c));
+      if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 38, maxZoom: 14.8, duration: 500 });
+    }
+  }
 
   function ensureLiveTripRouteLayer(leg) {
     if (!state.map || !leg || !Array.isArray(leg.coordinates) || leg.coordinates.length < 2) return;
@@ -974,27 +1103,29 @@
   }
 
   function updateLiveTripMap(payload = {}) {
+    updateLiveTripInlineMap(payload).catch(() => {});
     if (!state.map) return;
 
-    const { leg, position, nextStop, follow = false } = payload;
+    const { leg, vehiclePosition, position, nextStop, follow = false } = payload;
+    const trackedPosition = vehiclePosition || position;
     ensureLiveTripRouteLayer(leg);
 
-    if (position && Number.isFinite(Number(position.lon)) && Number.isFinite(Number(position.lat))) {
+    if (trackedPosition && Number.isFinite(Number(trackedPosition.lon)) && Number.isFinite(Number(trackedPosition.lat))) {
       if (!liveTripUserMarker) {
         const el = document.createElement("div");
-        el.className = "live-map-user";
+        el.className = "live-map-vehicle";
         el.innerHTML = '<span></span>';
         liveTripUserMarker = new maplibregl.Marker({ element: el, anchor: "center" })
-          .setLngLat([Number(position.lon), Number(position.lat)])
+          .setLngLat([Number(trackedPosition.lon), Number(trackedPosition.lat)])
           .addTo(state.map);
       } else {
-        liveTripUserMarker.setLngLat([Number(position.lon), Number(position.lat)]);
+        liveTripUserMarker.setLngLat([Number(trackedPosition.lon), Number(trackedPosition.lat)]);
       }
 
       if (follow) {
         state.map.easeTo({
-          center: [Number(position.lon), Number(position.lat)],
-          zoom: Math.max(state.map.getZoom(), 15.2),
+          center: [Number(trackedPosition.lon), Number(trackedPosition.lat)],
+          zoom: Math.max(state.map.getZoom(), 14.8),
           duration: 450
         });
       }
@@ -1028,6 +1159,22 @@
     if (liveTripNextMarker) {
       liveTripNextMarker.remove();
       liveTripNextMarker = null;
+    }
+    if (liveTripInlineVehicleMarker) {
+      liveTripInlineVehicleMarker.remove();
+      liveTripInlineVehicleMarker = null;
+    }
+    if (liveTripInlineNextMarker) {
+      liveTripInlineNextMarker.remove();
+      liveTripInlineNextMarker = null;
+    }
+    liveTripInlineSignature = "";
+    if (liveTripInlineMap) {
+      if (liveTripInlineMap.getLayer("live-route-line")) liveTripInlineMap.removeLayer("live-route-line");
+      if (liveTripInlineMap.getLayer("live-route-glow")) liveTripInlineMap.removeLayer("live-route-glow");
+      if (liveTripInlineMap.getSource("live-route")) liveTripInlineMap.removeSource("live-route");
+      if (liveTripInlineMap.getLayer("live-stops")) liveTripInlineMap.removeLayer("live-stops");
+      if (liveTripInlineMap.getSource("live-stops")) liveTripInlineMap.removeSource("live-stops");
     }
 
     if (!state.map) return;

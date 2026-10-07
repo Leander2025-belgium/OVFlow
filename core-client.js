@@ -2,7 +2,7 @@
   "use strict";
 
   /*
-   * OVFlow 4.2 public-data client
+   * OVFlow 4.3 public-data client
    *
    * Important design rule: the browser must work on static hosting too.
    * Therefore this client does NOT probe /api/* endpoints by default.
@@ -133,6 +133,7 @@
       name: String(match.name || "Onbekende halte"),
       municipality: municipalityFromMatch(match),
       street: String(match.street || ""),
+      stopCode: String(match.stopCode || ""),
       entity: "",
       stop: id,
       lat,
@@ -207,34 +208,122 @@
     return asArray(data).map(normalizeMatch).filter(Boolean);
   }
 
-  async function transitousStopTimes({ stopId = "", lat, lon, radius = 120, max = 8 }) {
+  async function transitousStopTimes({
+    stopId = "", lat, lon, radius = 120, max = 8,
+    time = null, windowSeconds = null, direction = "LATER", minimumEvents = null,
+    exactRadius = false, fetchStops = false
+  }) {
     const url = new URL(`${TRANSITOUS_BASE}/api/v6/stoptimes`);
     if (stopId) {
       url.searchParams.set("stopId", String(stopId));
     } else if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
       url.searchParams.set("center", `${Number(lat)},${Number(lon)}`);
       url.searchParams.set("radius", String(clamp(radius, 25, 2500)));
-      url.searchParams.set("exactRadius", "false");
+      url.searchParams.set("exactRadius", String(Boolean(exactRadius)));
     } else {
       throw new Error("Geen geldige halte of coördinaat beschikbaar.");
     }
-    url.searchParams.set("n", String(clamp(max, 1, 30)));
+
+    if (time) {
+      const parsed = parseDate(time);
+      if (parsed) url.searchParams.set("time", parsed.toISOString());
+    }
+    if (Number.isFinite(Number(windowSeconds)) && Number(windowSeconds) >= 0) {
+      url.searchParams.set("window", String(Math.round(Number(windowSeconds))));
+    }
+
+    url.searchParams.set("n", String(clamp(minimumEvents ?? max, 1, 300)));
     url.searchParams.set("arriveBy", "false");
     url.searchParams.set("both", "false");
+    url.searchParams.set("direction", String(direction || "LATER").toUpperCase() === "EARLIER" ? "EARLIER" : "LATER");
     url.searchParams.set("realtimeMode", "REALTIME");
     url.searchParams.set("language", "nl");
     url.searchParams.set("withAlerts", "true");
+    if (fetchStops) url.searchParams.set("fetchStops", "true");
 
     const { response, data } = await cachedJson(url, 8_000);
     if (!response.ok) throw new Error(data?.message || `Transitous vertrekken HTTP ${response.status}`);
     const stopName = String(data?.place?.name || "");
     return {
       place: data?.place || null,
+      previousPageCursor: String(data?.previousPageCursor || ""),
+      nextPageCursor: String(data?.nextPageCursor || ""),
       departures: asArray(data?.stopTimes)
         .map(item => normalizeStopTime(item, stopName))
         .filter(item => item.plannedDeparture || item.realtimeDeparture)
-        .slice(0, max)
+        .slice(0, Math.max(1, Number(max) || 8))
     };
+  }
+
+  async function stopDeparturesWindow(stop, options = {}) {
+    if (!stop || typeof stop !== "object") throw new Error("Geen halte geselecteerd.");
+    const pastMinutes = clamp(options.pastMinutes ?? 5, 0, 60);
+    const futureMinutes = clamp(options.futureMinutes ?? 180, 5, 360);
+    const start = new Date(Date.now() - pastMinutes * 60_000);
+    const end = new Date(Date.now() + futureMinutes * 60_000);
+    const windowSeconds = Math.round((pastMinutes + futureMinutes) * 60);
+    const stopId = String(stop.transitousId || stop.id || stop.stop || "");
+    const lat = Number(stop.lat ?? stop.latitude);
+    const lon = Number(stop.lon ?? stop.longitude ?? stop.lng);
+
+    let result = null;
+    if (stopId && !/^\d{1,3}-\d+$/.test(stopId)) {
+      try {
+        result = await transitousStopTimes({
+          stopId,
+          max: Number(options.max || 300),
+          minimumEvents: 1,
+          time: start,
+          windowSeconds,
+          direction: "LATER",
+          fetchStops: false
+        });
+      } catch {}
+    }
+    if (!result && Number.isFinite(lat) && Number.isFinite(lon)) {
+      result = await transitousStopTimes({
+        lat, lon, radius: 130,
+        max: Number(options.max || 300),
+        minimumEvents: 1,
+        time: start,
+        windowSeconds,
+        direction: "LATER",
+        fetchStops: false
+      });
+    }
+    if (!result) throw new Error("Vertrektijden voor deze halte konden niet worden geladen.");
+
+    const departures = result.departures
+      .filter(item => {
+        const d = parseDate(item.realtimeDeparture || item.plannedDeparture);
+        return d && d >= start && d <= end;
+      })
+      .sort((a, b) => {
+        const da = parseDate(a.realtimeDeparture || a.plannedDeparture)?.getTime() || 0;
+        const db = parseDate(b.realtimeDeparture || b.plannedDeparture)?.getTime() || 0;
+        return da - db;
+      });
+
+    return {
+      place: result.place,
+      departures,
+      range: { start: start.toISOString(), end: end.toISOString() },
+      source: "transitous"
+    };
+  }
+
+  async function transitousTrip(tripId) {
+    const id = String(tripId || "").trim();
+    if (!id) throw new Error("Deze rit heeft geen trip-id.");
+    const url = new URL(`${TRANSITOUS_BASE}/api/v6/trip`);
+    url.searchParams.set("tripId", id);
+    url.searchParams.set("withScheduledSkippedStops", "true");
+    url.searchParams.set("detailedLegs", "true");
+    url.searchParams.set("joinInterlinedLegs", "false");
+    url.searchParams.set("language", "nl");
+    const { response, data } = await cachedJson(url, 7_000);
+    if (!response.ok) throw new Error(data?.message || `Transitous rit HTTP ${response.status}`);
+    return data;
   }
 
   async function stopDepartures(stopOrEntity, maybeStopNumber, maybeMax = 8) {
@@ -246,7 +335,7 @@
       max = Number(maybeStopNumber || maybeMax || 8);
     } else {
       // Backwards compatibility for older calls. A De Lijn numeric identifier is
-      // not a Transitous stop id, so coordinates are preferred by OVFlow 4.2.
+      // not a Transitous stop id, so coordinates are preferred by OVFlow 4.3.
       stop = { entity: String(stopOrEntity || ""), stop: String(maybeStopNumber || "") };
     }
 
@@ -262,7 +351,7 @@
       result = await transitousStopTimes({ lat, lon, radius: 130, max });
     }
     if (!result) {
-      throw new Error("Voor deze oude haltecode ontbreken coördinaten. Zoek de halte opnieuw in OVFlow 4.2.");
+      throw new Error("Voor deze oude haltecode ontbreken coördinaten. Zoek de halte opnieuw in OVFlow 4.3.");
     }
     return { departures: result.departures, source: "transitous" };
   }
@@ -413,10 +502,12 @@
     detect,
     health,
     stopDepartures,
+    stopDeparturesWindow,
     nearby,
     nearbyStops,
     searchPlaces,
     fetchJson,
-    transitousStopTimes
+    transitousStopTimes,
+    transitousTrip
   };
 })();

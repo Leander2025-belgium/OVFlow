@@ -3060,3 +3060,55 @@ body.live-trip-active .bottom-nav{opacity:0;pointer-events:none;transform:transl
 }
 .route-mode-icon svg{width:18px;height:18px}
 .planner-suggestion-icon svg,.stop-result-icon svg{width:17px;height:17px}.route-map-button span svg,.quick-live-search-button span svg{width:16px;height:16px}.quick-live-input-wrap button svg{width:15px;height:15px}
+
+/* OVFlow 4.3 · Haltes + clickable live lines */
+.bottom-nav{grid-template-columns:repeat(5,1fr)!important}
+.bottom-nav .nav-item{min-width:0!important;padding-left:2px!important;padding-right:2px!important}
+.bottom-nav .nav-item small{font-size:8.5px!important}
+
+.nearby-departure{
+  width:100%;border:0;background:#fff;text-align:left;color:inherit;cursor:pointer;
+  grid-template-columns:48px minmax(0,1fr) auto 18px!important;
+  transition:background .16s ease,transform .12s ease
+}
+.nearby-departure:hover{background:#f7fbff}.nearby-departure:active{transform:scale(.995);background:#f0f7ff}
+.nearby-departure.cancelled{cursor:default}.nearby-live-arrow{font-size:22px;line-height:1;color:#98a2b3;font-weight:500;text-align:center}
+
+.departure-live-line{appearance:none;-webkit-appearance:none;cursor:pointer;transition:transform .13s ease,box-shadow .16s ease}
+.departure-live-line:active{transform:scale(.94)}
+body.ovflow-v40 .departure-live-line{background:#1677ff!important;color:#fff!important;border-color:#1677ff!important;box-shadow:0 5px 15px rgba(22,119,255,.18)!important}
+.departure-passed{opacity:.56}.departure-time span.passed{color:#98a2b3!important}
+
+.live-trip-map-stops-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(300px,.92fr);gap:12px;align-items:start;margin-top:12px}
+.live-trip-inline-map-card,.live-trip-overview{min-width:0;background:#fff;border:1px solid #e6ebf1;border-radius:22px;padding:12px;box-shadow:0 8px 24px rgba(31,45,61,.06)}
+.live-trip-inline-map-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.live-trip-inline-map-head h3{margin:2px 0 0;font-size:15px;letter-spacing:-.025em;color:#111827}
+.live-trip-inline-map-shell{position:relative;height:390px;border-radius:17px;overflow:hidden;background:#edf2f7;border:1px solid #e0e6ed}
+.live-trip-inline-map{position:absolute;inset:0}
+.live-trip-inline-map .maplibregl-ctrl-attrib{font-size:8px!important}
+.live-trip-vehicle-status{position:absolute;z-index:4;left:10px;bottom:10px;max-width:calc(100% - 20px);padding:7px 9px;border-radius:999px;background:rgba(17,24,39,.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#fff;font-size:8px;font-weight:850;letter-spacing:.04em;box-shadow:0 5px 16px rgba(0,0,0,.2)}
+.live-trip-position-note{margin:8px 2px 0;color:#8a94a4;font-size:8.5px;line-height:1.45}
+.live-inline-map-error{height:100%;display:grid;place-items:center;color:#667085;font-size:11px;background:#f4f7fa}
+
+.live-map-vehicle{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;background:#1677ff;border:3px solid rgba(255,255,255,.98);box-shadow:0 0 0 8px rgba(22,119,255,.14),0 8px 22px rgba(22,76,145,.28);transform:rotate(45deg)}
+.live-map-vehicle span{display:block;width:12px;height:16px;border-radius:4px;background:#fff;position:relative;transform:rotate(-45deg)}
+.live-map-vehicle span:before,.live-map-vehicle span:after{content:"";position:absolute;left:2px;right:2px;height:2px;border-radius:2px;background:#1677ff}
+.live-map-vehicle span:before{top:3px}.live-map-vehicle span:after{bottom:3px}
+
+.live-trip-overview{max-height:520px;overflow:hidden;display:flex;flex-direction:column}
+.live-trip-overview-head{flex:0 0 auto}.live-trip-stop-list{overflow:auto;overscroll-behavior:contain;padding-right:2px}
+
+@media(max-width:760px){
+  .live-trip-map-stops-grid{grid-template-columns:1fr}
+  .live-trip-inline-map-shell{height:330px}
+  .live-trip-overview{max-height:none}
+  .live-trip-stop-list{overflow:visible}
+}
+@media(max-width:560px){
+  .bottom-nav{width:min(calc(100% - 12px),620px)!important;padding:5px!important}
+  .bottom-nav .nav-item small{font-size:7.5px!important}
+  .bottom-nav .nav-item svg{width:18px!important}
+  .nearby-departure{grid-template-columns:42px minmax(0,1fr) auto 14px!important}
+  .live-trip-inline-map-shell{height:285px}
+  .live-trip-inline-map-card,.live-trip-overview{border-radius:18px;padding:9px}
+}

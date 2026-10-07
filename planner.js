@@ -543,6 +543,17 @@
       leg.to?.scheduledArrival ??
       null;
 
+    const rawVehiclePosition =
+      leg.vehiclePosition ||
+      leg.vehicle?.position ||
+      leg.trip?.vehiclePosition ||
+      null;
+    const vehicleLat = Number(rawVehiclePosition?.lat ?? rawVehiclePosition?.latitude);
+    const vehicleLon = Number(rawVehiclePosition?.lon ?? rawVehiclePosition?.lng ?? rawVehiclePosition?.longitude);
+    const vehiclePosition = Number.isFinite(vehicleLat) && Number.isFinite(vehicleLon)
+      ? { lat: vehicleLat, lon: vehicleLon, exact: true }
+      : null;
+
     return {
       type: mode === "WALK" ? "walk" : "transit",
       mode,
@@ -556,6 +567,7 @@
       tripShortName: String(tripShortName || ""),
       vehicleCandidate: String(vehicleCandidate || ""),
       occupancy: String(occupancy || ""),
+      vehiclePosition,
       scheduledStart,
       scheduledEnd,
       start,
@@ -1729,6 +1741,111 @@
     }
   }
 
+  function interpolatedRoutePosition(leg, fromStop, toStop, fraction) {
+    const coords = Array.isArray(leg?.coordinates) ? leg.coordinates : [];
+    if (coords.length < 2) return null;
+    const clean = coords
+      .filter(p => Array.isArray(p) && p.length >= 2)
+      .map(p => [Number(p[0]), Number(p[1])])
+      .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (clean.length < 2) return null;
+
+    function nearestIndex(stop) {
+      let best = -1;
+      let bestDistance = Infinity;
+      clean.forEach((point, index) => {
+        const d = distanceMeters(Number(stop.lat), Number(stop.lon), point[1], point[0]);
+        if (d < bestDistance) { bestDistance = d; best = index; }
+      });
+      return best;
+    }
+
+    let aIndex = nearestIndex(fromStop);
+    let bIndex = nearestIndex(toStop);
+    if (aIndex < 0 || bIndex < 0) return null;
+    if (bIndex < aIndex) [aIndex, bIndex] = [bIndex, aIndex];
+    if (bIndex <= aIndex) return null;
+
+    const segment = clean.slice(aIndex, bIndex + 1);
+    const lengths = [];
+    let total = 0;
+    for (let i = 0; i < segment.length - 1; i += 1) {
+      const d = distanceMeters(segment[i][1], segment[i][0], segment[i + 1][1], segment[i + 1][0]);
+      lengths.push(d);
+      total += d;
+    }
+    if (!(total > 0)) return null;
+
+    const target = Math.max(0, Math.min(1, Number(fraction) || 0)) * total;
+    let walked = 0;
+    for (let i = 0; i < lengths.length; i += 1) {
+      const next = walked + lengths[i];
+      if (target <= next || i === lengths.length - 1) {
+        const local = lengths[i] > 0 ? (target - walked) / lengths[i] : 0;
+        const a = segment[i], b = segment[i + 1];
+        return {
+          lon: a[0] + (b[0] - a[0]) * local,
+          lat: a[1] + (b[1] - a[1]) * local
+        };
+      }
+      walked = next;
+    }
+    return null;
+  }
+
+  function estimatedVehiclePosition(live) {
+    const exact = live?.leg?.vehiclePosition;
+    if (exact && Number.isFinite(Number(exact.lat)) && Number.isFinite(Number(exact.lon))) {
+      return { lat: Number(exact.lat), lon: Number(exact.lon), exact: true, source: "vehicle" };
+    }
+
+    const stops = Array.isArray(live?.stops) ? live.stops : [];
+    if (!stops.length) return null;
+    const now = Date.now();
+
+    const timed = stops.map(stop => ({
+      ...stop,
+      _time: asDate(liveStopTime(stop))?.getTime() || null
+    }));
+
+    const firstTimed = timed.find(stop => stop._time && Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon)));
+    const lastTimed = [...timed].reverse().find(stop => stop._time && Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon)));
+    if (!firstTimed || !lastTimed) return null;
+
+    if (now <= firstTimed._time) {
+      return { lat: Number(firstTimed.lat), lon: Number(firstTimed.lon), exact: false, source: "schedule" };
+    }
+    if (now >= lastTimed._time) {
+      return { lat: Number(lastTimed.lat), lon: Number(lastTimed.lon), exact: false, source: "schedule" };
+    }
+
+    for (let i = 0; i < timed.length - 1; i += 1) {
+      const a = timed[i];
+      const b = timed[i + 1];
+      if (!a?._time || !b?._time) continue;
+      if (![a.lat, a.lon, b.lat, b.lon].every(v => Number.isFinite(Number(v)))) continue;
+      if (now < a._time || now > b._time) continue;
+
+      const span = Math.max(1, b._time - a._time);
+      const f = Math.max(0, Math.min(1, (now - a._time) / span));
+      const routed = interpolatedRoutePosition(live?.leg, a, b, f);
+      return {
+        lat: routed?.lat ?? (Number(a.lat) + (Number(b.lat) - Number(a.lat)) * f),
+        lon: routed?.lon ?? (Number(a.lon) + (Number(b.lon) - Number(a.lon)) * f),
+        exact: false,
+        source: live?.leg?.realtime ? "realtime-estimate" : "schedule",
+        segmentFrom: a.name,
+        segmentTo: b.name
+      };
+    }
+
+    const next = timed[Math.max(0, Math.min(timed.length - 1, Number(live?.nextIndex || 0)))];
+    if (next && Number.isFinite(Number(next.lat)) && Number.isFinite(Number(next.lon))) {
+      return { lat: Number(next.lat), lon: Number(next.lon), exact: false, source: "schedule" };
+    }
+    return null;
+  }
+
   function renderLiveTrip() {
     const live = planner.live;
     if (!live.active || !live.leg || live.stops.length < 2) return;
@@ -1752,7 +1869,9 @@
 
     const stops = live.stops;
     const lastIndex = stops.length - 1;
-    const position = live.position;
+    const userPosition = live.position;
+    const vehiclePosition = estimatedVehiclePosition(live);
+    const position = vehiclePosition;
 
     updateSequentialStopTracker(position, live);
 
@@ -1794,29 +1913,20 @@
     syncLiveTripCounts(live, nextIndex);
     $("#liveTripArrival").textContent = liveArrivalLabel(stops[lastIndex]);
 
-    if (position) {
-      const speedMs = Number(position.speed);
-      if (Number.isFinite(speedMs) && speedMs >= 0) {
-        const currentKmh = speedMs * 3.6;
-        live.smoothedSpeedKmh = Number.isFinite(live.smoothedSpeedKmh)
-          ? (live.smoothedSpeedKmh * 0.72 + currentKmh * 0.28)
-          : currentKmh;
-        $("#liveTripSpeed").textContent = `${Math.round(live.smoothedSpeedKmh)} km/u`;
-        setLiveStatVisibility("speed", true);
-      } else {
-        $("#liveTripSpeed").textContent = Number.isFinite(live.smoothedSpeedKmh)
-          ? `${Math.round(live.smoothedSpeedKmh)} km/u`
-          : "—";
-      }
-      $("#liveTripAccuracy").textContent = Number.isFinite(Number(position.accuracy))
-        ? `±${Math.round(position.accuracy)} m`
-        : "—";
-      $("#liveTripGpsMeta").textContent = Number(position.accuracy) <= 80 ? "Goede positie" : "Minder nauwkeurig";
+    $("#liveTripSpeed").textContent = "—";
+    setLiveStatVisibility("speed", false);
+    if (vehiclePosition?.exact) {
+      $("#liveTripAccuracy").textContent = "Voertuig-GPS";
+      $("#liveTripGpsMeta").textContent = "Exacte live positie";
+    } else if (vehiclePosition?.source === "realtime-estimate") {
+      $("#liveTripAccuracy").textContent = "Realtime schatting";
+      $("#liveTripGpsMeta").textContent = "Tussen actuele haltepassages";
+    } else if (vehiclePosition) {
+      $("#liveTripAccuracy").textContent = "Dienstregeling";
+      $("#liveTripGpsMeta").textContent = "Positie geschat uit tijden";
     } else {
-      $("#liveTripSpeed").textContent = "—";
-      setLiveStatVisibility("speed", false);
-      $("#liveTripAccuracy").textContent = "Tijdmodus";
-      $("#liveTripGpsMeta").textContent = "GPS tijdelijk niet beschikbaar";
+      $("#liveTripAccuracy").textContent = "Niet beschikbaar";
+      $("#liveTripGpsMeta").textContent = "Geen positiebron";
     }
 
     const time = asDate(liveStopTime(nextStop));
@@ -1835,10 +1945,20 @@
 
     bridge.updateLiveTripMap?.({
       leg: live.leg,
-      position,
+      vehiclePosition,
+      userPosition,
+      position: userPosition,
       nextStop,
+      stops,
       follow: live.followMap
     });
+
+    const vehicleStatus = $("#liveTripVehicleStatus");
+    if (vehicleStatus) {
+      if (vehiclePosition?.exact) vehicleStatus.textContent = "LIVE GPS-POSITIE";
+      else if (vehiclePosition?.source === "realtime-estimate") vehicleStatus.textContent = "LIVE POSITIE · GESCHAT UIT REALTIME";
+      else vehicleStatus.textContent = "POSITIE · GESCHAT UIT DIENSTREGELING";
+    }
   }
 
 
@@ -2411,7 +2531,7 @@
     setLiveNavActive(true);
 
     renderLiveTrip();
-    startLiveGps();
+    updateGpsStatus("Realtime rit actief", "active");
     requestWakeLock();
 
     live.tickTimer = setInterval(renderLiveTrip, 10000);
@@ -2463,7 +2583,10 @@
     if (live.followMap) {
       bridge.focusLiveTripMap?.({
         leg: live.leg,
+        vehiclePosition: estimatedVehiclePosition(live),
+        userPosition: live.position,
         position: live.position,
+        stops: live.stops,
         nextStop
       });
     } else {

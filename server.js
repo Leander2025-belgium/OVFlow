@@ -7,7 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
-const APP_VERSION = "OVFlow-4.2.0";
+const APP_VERSION = "OVFlow-4.3.0";
 const DATA_DIR = path.join(__dirname, "data");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -448,7 +448,7 @@ async function callIrailStations() {
     return fetchWithTimeout(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.2.0 (public-transit-app)"
+        "User-Agent": "OVFlow/4.3.0 (public-transit-app)"
       }
     }, 10_000);
   });
@@ -482,7 +482,7 @@ async function callIrailLiveboard(stationId, max = 8) {
     return fetchWithTimeout(url.toString(), {
       headers: {
         Accept: "application/json",
-        "User-Agent": "OVFlow/4.2.0 (public-transit-app)"
+        "User-Agent": "OVFlow/4.3.0 (public-transit-app)"
       }
     }, 10_000);
   }).then(data => {
@@ -580,7 +580,7 @@ async function fetchTransitous(pathname, searchParams, ttlMs = 15_000) {
   return cachedJson(key, ttlMs, () => fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
-      "User-Agent": "OVFlow/4.2.0 (public-transit-app)"
+      "User-Agent": "OVFlow/4.3.0 (public-transit-app)"
     }
   }, 20_000));
 }
@@ -1389,7 +1389,7 @@ async function fetchByAbsoluteDeLijnUrl(url) {
   });
 }
 
-// OVFlow 4.2 Core: one normalized data layer for the frontend.
+// OVFlow 4.3 Core: one normalized data layer for the frontend.
 app.get("/api/v4/health", (req, res) => {
   res.json({
     ok: true,
@@ -1505,7 +1505,7 @@ app.get("/api/v4/stops/nearby", async (req, res) => {
     res.json({
       ok: true,
       source: "ovflow-core",
-      version: "4.2.0",
+      version: "4.3.0",
       location: { lat, lon },
       radius,
       stops,
@@ -1572,7 +1572,7 @@ app.get("/api/v4/rail/vehicle", async (req, res) => {
     url.searchParams.set("lang", "nl");
     url.searchParams.set("alerts", "false");
     const data = await cachedJson(`irail:vehicle:${id}:${date}`, 15_000, () => fetchWithTimeout(url.toString(), {
-      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.2.0 (public-transit-app)" }
+      headers: { Accept: "application/json", "User-Agent": "OVFlow/4.3.0 (public-transit-app)" }
     }, 10_000));
     res.json(data);
   } catch (error) {
@@ -1739,7 +1739,7 @@ app.get("/api/v4/nearby", async (req, res) => {
   res.json({
     ok: true,
     source: "ovflow-core",
-    version: "4.2.0",
+    version: "4.3.0",
     location: { lat, lon },
     radius,
     places: merged.slice(0, maxPlaces),

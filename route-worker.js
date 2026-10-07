@@ -1,4 +1,4 @@
-/* OVFlow v4.2 route engine — client-side De Lijn GTFS Static
+/* OVFlow v4.3 route engine — client-side De Lijn GTFS Static
    Geen externe ZIP-library nodig. De worker gebruikt DecompressionStream. */
 const TD = new TextDecoder("utf-8");
 let zipFiles = null, loadedUrl = null, staticData = null, dayIndex = null, dayIndexDate = null;

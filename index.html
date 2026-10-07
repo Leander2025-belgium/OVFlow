@@ -8,8 +8,8 @@
 <meta content="yes" name="apple-mobile-web-app-capable"/>
 <meta content="yes" name="mobile-web-app-capable"/>
 <meta content="default" name="apple-mobile-web-app-status-bar-style"/>
-<title>OVFlow 4.2 — Eén reis</title>
-<link href="style.css?v=4.2.0" rel="stylesheet"/>
+<title>OVFlow 4.3 — Eén reis</title>
+<link href="style.css?v=4.3.0" rel="stylesheet"/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2716%27 fill=%27%230b76ff%27/%3E%3Cpath d=%27M15 38c8-18 18-18 34-12%27 fill=%27none%27 stroke=%27white%27 stroke-width=%276%27 stroke-linecap=%27round%27/%3E%3Ccircle cx=%2748%27 cy=%2726%27 r=%275%27 fill=%27white%27/%3E%3C/svg%3E"/>
 <link rel="manifest" href="manifest.webmanifest"/>
 <link rel="apple-touch-icon" href="ovflow-icon-192.png"/>
@@ -27,7 +27,7 @@
 </span>
 <span class="brand-copy">
 <strong>OVFlow</strong>
-<small>4.2</small>
+<small>4.3</small>
 </span>
 </a>
 <div class="top-actions">
@@ -199,7 +199,7 @@
 <input autocomplete="off" id="stopSearchInput" placeholder="Zoek halte, plaats of straat…" type="search"/>
 <button aria-label="Wis zoekopdracht" id="clearSearchButton" type="button">×</button>
 </div>
-<div class="stop-search-status" id="stopSearchStatus">Zoek in echte De Lijn-haltes</div>
+<div class="stop-search-status" id="stopSearchStatus">Zoek in haltes en stations</div>
 <div class="stop-results hidden" id="stopResults"></div>
 </div>
 <div class="active-stop-card">
@@ -264,7 +264,7 @@
 <div class="section-head">
 <div>
 <span class="section-kicker">ACTUEEL</span>
-<h2>Vertrekken vanaf deze halte</h2>
+<h2>Vertrekken · -5 min tot +3 uur</h2>
 </div>
 <button class="refresh-button" id="refreshButton">
 <svg viewbox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
@@ -274,8 +274,8 @@
 <div class="loading-card" id="loadingCard">
 <div class="spinner"></div>
 <div>
-<strong>De Lijn-data ophalen</strong>
-<span>Even verbinden met de Open Data API…</span>
+<strong>Vertrektijden ophalen</strong>
+<span>Realtime haltegegevens worden geladen…</span>
 </div>
 </div>
 <div class="error-card hidden" id="errorCard">
@@ -431,23 +431,38 @@
 <small>GPS-meting</small>
 </article>
 <article class="live-trip-status-card" data-stat="gps">
-<span>GPS / locatie</span>
+<span>Positiebron</span>
 <strong id="liveTripAccuracy">—</strong>
-<small id="liveTripGpsMeta">Nauwkeurigheid</small>
+<small id="liveTripGpsMeta">Realtime ritdata</small>
 </article>
+</div>
+<div class="live-trip-map-stops-grid">
+<div class="live-trip-inline-map-card">
+<div class="live-trip-inline-map-head">
+<div>
+<span class="section-kicker">LIVE LOCATIE</span>
+<h3>Voertuig op de kaart</h3>
+</div>
+<button class="live-trip-map-button compact" id="liveTripMapButton" type="button">
+<svg viewbox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
+<span>Grote kaart</span>
+</button>
+</div>
+<div class="live-trip-inline-map-shell">
+<div id="liveTripInlineMap" class="live-trip-inline-map" aria-label="Live kaart van deze rit"></div>
+<div class="live-trip-vehicle-status" id="liveTripVehicleStatus">LIVE POSITIE LADEN…</div>
+</div>
+<p class="live-trip-position-note">De marker gebruikt voertuig-GPS wanneer beschikbaar; anders schat OVFlow de positie tussen realtime haltepassages.</p>
 </div>
 <div class="live-trip-overview">
 <div class="live-trip-overview-head">
 <div>
-<span class="section-kicker">Rit overzicht</span>
+<span class="section-kicker">ALLE HALTES</span>
 <h3 id="liveTripOverviewTitle">Onderweg</h3>
 </div>
-<button class="live-trip-map-button compact" id="liveTripMapButton" type="button">
-<svg viewbox="0 0 24 24"><path d="M12 3 4 20l8-4 8 4-8-17Z"></path></svg>
-<span>Volg op kaart</span>
-</button>
 </div>
 <div class="live-trip-stop-list premium-timeline" id="liveTripStopList"></div>
+</div>
 </div>
 <div class="live-trip-realtime-card" id="liveTripRealtimeCard">
 <span class="live-trip-realtime-icon">
@@ -456,7 +471,7 @@
 <div class="live-trip-realtime-copy">
 <span class="section-kicker">Realtime info</span>
 <strong id="liveTripRealtimeMessage">Live ritgegevens actief</strong>
-<small id="liveTripRealtimeDetail">OVFlow combineert realtime-data, haltevolgorde en GPS.</small>
+<small id="liveTripRealtimeDetail">OVFlow combineert realtime-data, haltevolgorde en ritgeometrie.</small>
 </div>
 <div class="live-trip-realtime-update">
 <span id="liveTripLastUpdate">Laatste update —</span>
@@ -476,7 +491,7 @@
 </button>
 </div>
 <p class="live-trip-note" id="liveTripResumeNote">
-          Live Trip gebruikt je GPS en actuele OV-data. Als iPhone het volgen pauzeert bij scherm-uit, synchroniseert OVFlow automatisch opnieuw zodra je ontgrendelt.
+          Live Trip gebruikt actuele OV-data en de volledige haltevolgorde. De voertuigpositie is exact wanneer voertuig-GPS beschikbaar is, anders duidelijk gemarkeerd als schatting.
         </p>
 </section><section class="saved-section ov-screen" id="savedSection">
   <div class="saved-page-head">
@@ -509,7 +524,7 @@
 </div>
 <div class="map-caption">
 <span>Kaart: OpenStreetMap</span>
-<span>Haltes: Digitaal Vlaanderen / De Lijn</span>
+<span>Kaartlaag haltes: Digitaal Vlaanderen / De Lijn</span>
 </div>
 </section><section class="two-column technical-details">
 <section class="panel data-panel">
@@ -570,7 +585,7 @@
 </div>
 </section>
 </section><footer class="footer technical-footer">
-<span>OVFlow 4.2</span>
+<span>OVFlow 4.3</span>
 <span>Transitous · iRail · OpenStreetMap</span>
 <span>Open Data</span>
 </footer></main>
@@ -582,6 +597,10 @@
   <button class="nav-item" data-target="trips" type="button">
     <svg viewBox="0 0 24 24"><path d="M5 17h14M7 17V8c0-2.3 2-4 5-4s5 1.7 5 4v9"></path><path d="M9 9h6M8 13h8"></path><circle cx="9" cy="17" r="1"></circle><circle cx="15" cy="17" r="1"></circle></svg>
     <small>Reizen</small>
+  </button>
+  <button class="nav-item" data-target="stops" type="button">
+    <svg viewBox="0 0 24 24"><path d="M7 18V7c0-2 2-3 5-3s5 1 5 3v11"></path><path d="M9 9h6M8 13h8"></path><path d="M9 18v2M15 18v2"></path></svg>
+    <small>Haltes</small>
   </button>
   <button class="nav-item" data-target="map" id="navMap" type="button">
     <svg viewBox="0 0 24 24"><path d="m4 6 5-2 6 2 5-2v14l-5 2-6-2-5 2Z"></path><path d="M9 4v14M15 6v14"></path></svg>
@@ -598,7 +617,7 @@
 <div class="sheet-handle"></div>
 <div class="sheet-head">
 <div>
-<span class="section-kicker">OVFlow 4.2</span>
+<span class="section-kicker">OVFlow 4.3</span>
 <h2>Instellingen</h2>
 </div>
 <button aria-label="Sluiten" class="icon-button" id="closeSettings">
@@ -609,24 +628,19 @@
 <strong>Actuele open vervoersdata</strong>
 <p>OVFlow kiest zelf de juiste halte en databron. Je hoeft geen haltenummers of API-codes meer in te vullen.</p>
 </div>
-<label class="form-field">
-<span>Aantal vertrekken op een haltebord</span>
-<select id="maxDeparturesSelect">
-<option value="4">4 vertrekken</option>
-<option selected="" value="6">6 vertrekken</option>
-<option value="8">8 vertrekken</option>
-<option value="10">10 vertrekken</option>
-</select>
-</label>
-<button class="sheet-primary" id="saveSettings">Instellingen opslaan</button>
-<div class="security-warning"><span>i</span><p><strong>OVFlow 4.2.</strong> Zoeken, vertrekken en routes werken rechtstreeks via open vervoersdata. Een eigen /api-backend is niet nodig.</p></div>
+<div class="sheet-info">
+<strong>Haltebordvenster</strong>
+<p>OVFlow toont altijd vertrekken van 5 minuten geleden tot 3 uur vooruit.</p>
+</div>
+<button class="sheet-primary" id="saveSettings">Sluiten</button>
+<div class="security-warning"><span>i</span><p><strong>OVFlow 4.3.</strong> Zoeken, vertrekken en routes werken rechtstreeks via open vervoersdata. Een eigen /api-backend is niet nodig.</p></div>
 </aside>
 <div class="toast" id="toast"></div>
-<script src="config.js?v=4.2.0"></script>
-<script src="core-client.js?v=4.2.0"></script>
-<script src="app.js?v=4.2.0"></script>
-<script src="planner.js?v=4.2.0"></script>
-<script src="quick-live.js?v=4.2.0"></script>
-<script src="ui.js?v=4.2.0"></script>
+<script src="config.js?v=4.3.0"></script>
+<script src="core-client.js?v=4.3.0"></script>
+<script src="app.js?v=4.3.0"></script>
+<script src="planner.js?v=4.3.0"></script>
+<script src="quick-live.js?v=4.3.0"></script>
+<script src="ui.js?v=4.3.0"></script>
 </body>
 </html>

@@ -14,12 +14,12 @@
   const screens = {
     home: ["#homeDashboard"],
     trips: ["#journeyPlanner", "#quickLivePanel", "#liveTripSession"],
+    stops: ["section.hero", ".stats-grid", ".departures-panel"],
     map: ["#mapSection"],
     saved: ["#savedSection"]
   };
 
   const legacy = [
-    "section.hero", ".stats-grid", ".departures-panel",
     ".technical-details", ".technical-footer"
   ];
 
@@ -101,17 +101,70 @@
     return '<svg viewBox="0 0 24 24"><path d="M6 17V7c0-2 2-3 6-3s6 1 6 3v10"></path><path d="M8 8h8M7 12h10M8 17v2M16 17v2"></path></svg>';
   }
 
+  let nearbyPlacesState = [];
+
+  function extractTripLeg(data, departure = null) {
+    const candidates = [];
+    if (Array.isArray(data?.legs)) candidates.push(...data.legs);
+    if (Array.isArray(data?.itinerary?.legs)) candidates.push(...data.itinerary.legs);
+    if (Array.isArray(data?.trip?.legs)) candidates.push(...data.trip.legs);
+    if (Array.isArray(data?.itineraries)) {
+      data.itineraries.forEach(it => Array.isArray(it?.legs) && candidates.push(...it.legs));
+    }
+    if (!candidates.length && data?.mode) candidates.push(data);
+
+    const tripId = String(departure?.tripId || "");
+    const line = String(departure?.line || "").trim().toLowerCase();
+    const transit = candidates.filter(leg => String(leg?.mode || "").toUpperCase() !== "WALK");
+    return transit.find(leg => {
+      const id = String(leg?.tripId || leg?.trip?.tripId || leg?.trip?.id || leg?.trips?.[0]?.tripId || "");
+      return tripId && id === tripId;
+    }) || transit.find(leg => {
+      const l = String(leg?.routeShortName || leg?.displayName || leg?.tripShortName || "").trim().toLowerCase();
+      return line && l === line;
+    }) || transit[0] || null;
+  }
+
+  async function openDeparture(departure, stop = null) {
+    if (!departure || departure.cancelled) return;
+    const plannerBridge = window.OVFlowPlannerBridge;
+    const bridge = window.OVFlowBridge;
+    if (!plannerBridge?.startLiveTripFromExternalLeg) {
+      bridge?.toast?.("Live rit is nog niet klaar");
+      return;
+    }
+
+    setView("trips", { keepScroll: true });
+    bridge?.toast?.(`Lijn ${departure.line || "—"} laden…`);
+
+    try {
+      if (!departure.tripId) throw new Error("Voor deze rit ontbreekt een trip-id.");
+      const trip = await core.transitousTrip(departure.tripId);
+      const leg = extractTripLeg(trip, departure);
+      if (!leg) throw new Error("De volledige rit kon niet worden gevonden.");
+      plannerBridge.startLiveTripFromExternalLeg(leg);
+    } catch (error) {
+      console.error("OVFlow live departure:", error);
+      bridge?.toast?.(error?.message || "Live rit kon niet worden geopend");
+      if (stop) {
+        const fallbackEvent = new CustomEvent("ovflow:livefallback", { detail: { departure, stop } });
+        document.dispatchEvent(fallbackEvent);
+      }
+    }
+  }
+
   function renderNearby(places) {
     const root = $("#nearbyPlaces");
     if (!root) return;
-    if (!places.length) {
+    nearbyPlacesState = Array.isArray(places) ? places : [];
+    if (!nearbyPlacesState.length) {
       root.innerHTML = '<div class="nearby-empty"><strong>Niets dichtbij gevonden</strong><span>Probeer opnieuw of vergroot later het zoekgebied.</span></div>';
       return;
     }
 
-    root.innerHTML = places.map(place => {
+    root.innerHTML = nearbyPlacesState.map((place, placeIndex) => {
       const deps = Array.isArray(place.departures) ? place.departures : [];
-      const rows = deps.length ? deps.map(dep => {
+      const rows = deps.length ? deps.map((dep, depIndex) => {
         const effective = dep.realtimeDeparture || dep.plannedDeparture;
         const delay = Number(dep.delayMinutes || 0);
         const liveText = dep.cancelled
@@ -119,11 +172,12 @@
           : dep.realtime
             ? (delay > 0 ? `+${delay} min` : "Live")
             : "Dienstregeling";
-        return `<div class="nearby-departure ${dep.cancelled ? "cancelled" : ""}">
+        return `<button type="button" class="nearby-departure ${dep.cancelled ? "cancelled" : ""}" data-nearby-place="${placeIndex}" data-nearby-departure="${depIndex}" ${dep.cancelled ? "disabled" : ""}>
           <span class="mode-line ${esc(dep.mode || place.mode)}">${esc(dep.line || (dep.mode === "train" ? "Trein" : "—"))}</span>
-          <div class="nearby-departure-main"><strong>${esc(dep.destination || "Onbekende richting")}</strong><small>${esc(dep.operator || place.operator || "")}${dep.platform ? ` · spoor ${esc(dep.platform)}` : ""}${dep.bay ? ` · perron ${esc(dep.bay)}` : ""}</small></div>
-          <div class="nearby-departure-time"><strong>${minuteLabel(effective)}</strong><small class="${dep.realtime ? "is-live" : ""}">${esc(liveText)}</small></div>
-        </div>`;
+          <span class="nearby-departure-main"><strong>${esc(dep.destination || "Onbekende richting")}</strong><small>${esc(dep.operator || place.operator || "")}${dep.platform ? ` · spoor ${esc(dep.platform)}` : ""}${dep.bay ? ` · perron ${esc(dep.bay)}` : ""}</small></span>
+          <span class="nearby-departure-time"><strong>${minuteLabel(effective)}</strong><small class="${dep.realtime ? "is-live" : ""}">${esc(liveText)}</small></span>
+          <span class="nearby-live-arrow" aria-hidden="true">›</span>
+        </button>`;
       }).join("") : `<div class="nearby-no-departures">${place.liveUnavailable ? "Live gegevens tijdelijk niet beschikbaar" : "Geen komende vertrekken gevonden"}</div>`;
 
       return `<article class="nearby-place">
@@ -135,6 +189,14 @@
         <div class="nearby-departures">${rows}</div>
       </article>`;
     }).join("");
+
+    root.querySelectorAll("[data-nearby-place][data-nearby-departure]").forEach(button => {
+      button.addEventListener("click", () => {
+        const place = nearbyPlacesState[Number(button.dataset.nearbyPlace)];
+        const dep = place?.departures?.[Number(button.dataset.nearbyDeparture)];
+        if (dep) openDeparture(dep, place);
+      });
+    });
   }
 
   function setNearbyState(kind, title, detail = "") {
@@ -246,7 +308,7 @@
     }).observe(liveSession, { attributes: true, attributeFilter: ["class"] });
   }
 
-  window.OVFlowUI = { setView };
+  window.OVFlowUI = { setView, openDeparture };
 
   renderSaved();
   const initial = location.hash.slice(1);
