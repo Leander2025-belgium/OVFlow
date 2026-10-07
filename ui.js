@@ -189,64 +189,68 @@
     }
     bridge?.toast?.(`Lijn ${departure.line || "—"} openen…`);
 
+    // Absolute UI watchdog. Zelfs wanneer een browser/fetch-implementatie een
+    // abort niet netjes afhandelt, blijft een lijnknop nooit eindeloos hangen.
+    const watchdog = setTimeout(() => {
+      if (requestId !== liveDepartureRequest) return;
+      liveDepartureRequest += 1;
+      if (trigger) {
+        trigger.disabled = false;
+        trigger.classList.remove("line-loading");
+        trigger.removeAttribute("aria-busy");
+      }
+      bridge?.toast?.("Live rit duurde te lang. De app blijft bruikbaar; probeer opnieuw.");
+    }, 9000);
+
     try {
       if (!departure.tripId) throw new Error("Voor deze rit ontbreekt een trip-id.");
 
-      // Vraag meerdere lichte bronnen tegelijk op en kies daarna degene die
-      // daadwerkelijk de rijkste haltevolgorde bevat. Een lege /trip-leg mag
-      // Live Trip nooit meer blokkeren zonder de fetchStops-fallback te proberen.
-      const tasks = [
-        core.transitousTrip(departure.tripId, { detailedLegs: false, timeout: 6500 }),
-        core.transitousTripFromDeparture(departure, stop || {}, { timeout: 6500 })
-      ];
-      if (core?.hasBackend?.()) {
-        tasks.push(core.backendLiveTrip(departure.tripId, departure.line || "", { timeout: 6500 }));
+      // 4.4.2: open eerst via ÉÉN compacte /trip call. De vorige versie
+      // startte tegelijk meerdere fetchStops=true stoptimes-aanvragen. Die
+      // responses kunnen op mobiel erg groot zijn en Safari/Chrome zichtbaar
+      // laten vastlopen terwijl JSON op de main thread wordt verwerkt.
+      let bestInfo = null;
+      let primaryError = null;
+
+      try {
+        const payload = await core.transitousTrip(departure.tripId, {
+          detailedLegs: false,
+          timeout: 4200
+        });
+        bestInfo = candidateFromPayload(payload, departure);
+      } catch (error) {
+        primaryError = error;
+        console.debug("OVFlow compacte trip lookup:", error);
       }
 
-      const settled = await Promise.allSettled(tasks);
       if (requestId !== liveDepartureRequest) return;
 
-      const candidates = settled
-        .filter(result => result.status === "fulfilled")
-        .map(result => candidateFromPayload(result.value, departure))
-        .filter(Boolean)
-        .sort((a, b) => {
-          // Alle haltes zijn belangrijker dan geometrie of een snelle eerste response.
-          if (b.stopCount !== a.stopCount) return b.stopCount - a.stopCount;
-          return b.intermediateCount - a.intermediateCount;
-        });
-
-      if (!candidates.length) {
-        const reasons = settled
-          .filter(result => result.status === "rejected")
-          .map(result => result.reason?.message)
-          .filter(Boolean);
-        throw new Error(reasons[0] || "De haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
-      }
-
-      const best = candidates[0].leg;
-
-      // Als de backend aanwezig is maar het gekozen halteprofiel uit MOTIS kwam,
-      // haal de exacte GPS nog los op zonder de start van de Live Trip te blokkeren.
-      if (!best.vehiclePosition && core?.hasBackend?.()) {
+      // Alleen wanneer /trip geen bruikbare haltevolgorde bevat, doen we één
+      // kleine stoptimes-fallback. Geen parallelle zware requests meer.
+      if (!bestInfo || bestInfo.stopCount <= 2) {
         try {
-          const exact = await core.backendVehiclePosition(departure.tripId, departure.line || "", { timeout: 3500 });
-          if (exact?.position && !exact.position.stale) {
-            best.vehiclePosition = {
-              lat: Number(exact.position.lat),
-              lon: Number(exact.position.lon),
-              exact: true,
-              timestamp: exact.position.timestamp || exact.updatedAt || null,
-              bearing: Number(exact.position.bearing || 0)
-            };
+          const fallback = await core.transitousTripFromDeparture(departure, stop || {}, {
+            timeout: 4200
+          });
+          const fallbackInfo = candidateFromPayload(fallback, departure);
+          if (fallbackInfo && (!bestInfo || fallbackInfo.stopCount > bestInfo.stopCount)) {
+            bestInfo = fallbackInfo;
           }
         } catch (error) {
-          console.debug("OVFlow exacte voertuigpositie niet beschikbaar:", error);
+          console.debug("OVFlow gerichte haltefallback:", error);
+          if (!primaryError) primaryError = error;
         }
       }
 
       if (requestId !== liveDepartureRequest) return;
-      plannerBridge.startLiveTripFromExternalLeg(best);
+
+      if (!bestInfo) {
+        throw primaryError || new Error("De haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
+      }
+
+      // Start de Live Trip meteen. Exacte De Lijn GPS wordt daarna door
+      // planner.js asynchroon opgehaald; GPS mag het openen nooit blokkeren.
+      plannerBridge.startLiveTripFromExternalLeg(bestInfo.leg);
     } catch (error) {
       if (requestId !== liveDepartureRequest) return;
       console.error("OVFlow live departure:", error);
@@ -255,6 +259,7 @@
         : (error?.message || "Live rit kon niet worden geopend");
       bridge?.toast?.(message);
     } finally {
+      clearTimeout(watchdog);
       if (requestId === liveDepartureRequest && trigger) {
         trigger.disabled = false;
         trigger.classList.remove("line-loading");

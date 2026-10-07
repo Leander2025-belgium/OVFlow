@@ -412,60 +412,53 @@
     const stopId = String(departure?.stopId || stop?.transitousId || stop?.id || "");
     const lat = Number(departure?.stopLatitude ?? stop?.lat ?? stop?.latitude);
     const lon = Number(departure?.stopLongitude ?? stop?.lon ?? stop?.longitude ?? stop?.lng);
-    const timeout = Math.max(2500, Math.min(9000, Number(options.timeout || 6000)));
+    const timeout = Math.max(2500, Math.min(6000, Number(options.timeout || 4200)));
 
+    // 4.4.2: fetchStops=true kan een grote payload opleveren. Vraag daarom
+    // maximaal een handvol gebeurtenissen op en probeer eerst alleen de
+    // logische vertrekrichting. De oude code vroeg 2 × 24 events tegelijk op.
     async function loadBoard(direction, arriveBy, offsetMs) {
       const common = {
-        max: 32,
-        minimumEvents: 24,
+        max: 6,
+        minimumEvents: 3,
         time: new Date(departureTime.getTime() + offsetMs),
-        windowSeconds: 15 * 60,
+        windowSeconds: 8 * 60,
         direction,
         arriveBy,
         fetchStops: true,
         timeout
       };
+      // Kies precies één locator. Geen tweede netwerkcall binnen dezelfde
+      // board lookup: dat was een verborgen bron van lange wachttijden.
       if (stopId && !/^\d{1,3}-\d+$/.test(stopId)) {
-        try { return await transitousStopTimes({ ...common, stopId }); } catch {}
+        try { return await transitousStopTimes({ ...common, stopId }); } catch { return null; }
       }
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
-        try { return await transitousStopTimes({ ...common, lat, lon, radius: 140 }); } catch {}
+        try { return await transitousStopTimes({ ...common, lat, lon, radius: 140 }); } catch { return null; }
       }
       return null;
     }
-
-    const [forward, backward] = await Promise.all([
-      loadBoard("LATER", false, -90_000),
-      loadBoard("EARLIER", true, 90_000)
-    ]);
 
     const line = String(departure?.line || "").trim().toLowerCase();
     const findMatch = board => board?.departures?.find(item => String(item.tripId || "") === tripId)
       || board?.departures?.find(item => line && String(item.line || "").trim().toLowerCase() === line)
       || null;
 
-    const forwardMatch = findMatch(forward);
-    const backwardMatch = findMatch(backward);
-    if (!forwardMatch && !backwardMatch) {
+    const board = await loadBoard("LATER", false, -90_000);
+    const match = findMatch(board);
+
+    if (!match) {
       throw new Error("De ritgegevens konden niet via de halte worden opgehaald.");
     }
 
-    const forwardRaw = forwardMatch?.rawStopTime || null;
-    const backwardRaw = backwardMatch?.rawStopTime || null;
-    const raw = {
-      ...(backwardRaw || {}),
-      ...(forwardRaw || {}),
-      previousStops: asArray(backwardRaw?.previousStops || forwardRaw?.previousStops).filter(Boolean),
-      nextStops: asArray(forwardRaw?.nextStops || backwardRaw?.nextStops).filter(Boolean),
-      place: forwardRaw?.place || backwardRaw?.place || null,
-      tripId: forwardRaw?.tripId || backwardRaw?.tripId || tripId
-    };
+    const raw = match.rawStopTime || null;
+    if (!raw) throw new Error("De haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
 
     const leg = stopEventLeg({ rawStopTime: raw }, departure);
     if (!leg || !Array.isArray(leg.intermediateStops)) {
       throw new Error("De volledige haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
     }
-    return { legs: [leg], source: "stoptimes-full-trip-fallback" };
+    return { legs: [leg], source: "stoptimes-light-full-trip-fallback" };
   }
 
   async function stopDepartures(stopOrEntity, maybeStopNumber, maybeMax = 8) {

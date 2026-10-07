@@ -1,3 +1,5 @@
+window.OVFLOW_VERSION = "4.4.2";
+console.info("OVFlow frontend", window.OVFLOW_VERSION);
 window.OVFLOW_CONFIG = {
   API_BASE: "https://ovflow-api.wheaterflow.be",
   // Publieke OVFlow-backend via Cloudflare Tunnel. De De Lijn keys blijven
