@@ -1079,7 +1079,14 @@
 
     [...cards.querySelectorAll("[data-live-route][data-live-leg]")].forEach(button => {
       button.addEventListener("click", () => {
-        startLiveTrip(Number(button.dataset.liveRoute), Number(button.dataset.liveLeg));
+        const routeIndex = Number(button.dataset.liveRoute);
+        const legIndex = Number(button.dataset.liveLeg);
+        const leg = planner.itineraries?.[routeIndex]?.legs?.[legIndex];
+        if (leg && window.OVFlowLivePage?.openLeg) {
+          window.OVFlowLivePage.openLeg(leg);
+          return;
+        }
+        startLiveTrip(routeIndex, legIndex);
       });
     });
 

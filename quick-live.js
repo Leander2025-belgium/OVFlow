@@ -369,34 +369,20 @@
     return best.leg;
   }
 
-  async function startCandidate(index) {
+  function startCandidate(index) {
     const candidate = state.results[index];
     if (!candidate) return;
-
     clearError();
-    setLoading(
-      true,
-      `Lijn ${candidate.dep.line} voorbereiden…`,
-      "Volledige haltevolgorde en realtime rit zoeken"
-    );
-
     try {
-      const leg = await findTransitLegForCandidate(candidate);
-      plannerBridge.startLiveTripFromExternalLeg(leg);
-
-      setStatus(
-        `Live Trip gestart: lijn ${candidate.dep.line} richting ${candidate.dep.destination}`,
-        "online"
-      );
-
-      toast(`Live rit lijn ${candidate.dep.line} gestart`);
+      if (!window.OVFlowLivePage?.open) throw new Error("Live-pagina is niet geladen.");
+      // 4.6: niet langer eerst een volledige Transitous-rit zoeken. De aparte
+      // Live bij-pagina opent meteen en haalt haar eigen informatie op.
+      window.OVFlowLivePage.open(candidate.dep.raw || candidate.dep, candidate.stop || {});
     } catch (error) {
-      showError(error?.message || "Deze rit kon niet worden gestart.", {
-        title: "Live Trip kon niet worden gestart",
-        status: "Starten mislukt"
+      showError(error?.message || "Deze rit kon niet worden geopend.", {
+        title: "Live bij kon niet worden geopend",
+        status: "Openen mislukt"
       });
-    } finally {
-      setLoading(false);
     }
   }
 

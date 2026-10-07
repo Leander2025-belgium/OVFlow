@@ -266,108 +266,19 @@
     };
   }
 
-  async function openDeparture(departure, stop = null, trigger = null) {
+  function openDeparture(departure, stop = null, trigger = null) {
     if (!departure || departure.cancelled) return;
-    const plannerBridge = window.OVFlowPlannerBridge;
     const bridge = window.OVFlowBridge;
-    if (!plannerBridge?.startLiveTripFromExternalLeg) {
-      bridge?.toast?.("Live rit is nog niet klaar");
-      return;
-    }
-
-    const requestId = ++liveDepartureRequest;
-    if (trigger) {
-      trigger.disabled = true;
-      trigger.classList.add("line-loading");
-      trigger.setAttribute("aria-busy", "true");
-    }
-    bridge?.toast?.(`Lijn ${departure.line || "—"} openen…`);
-
-    // Absolute UI watchdog. Zelfs wanneer een browser/fetch-implementatie een
-    // abort niet netjes afhandelt, blijft een lijnknop nooit eindeloos hangen.
-    const watchdog = setTimeout(() => {
-      if (requestId !== liveDepartureRequest) return;
-      liveDepartureRequest += 1;
-      if (trigger) {
-        trigger.disabled = false;
-        trigger.classList.remove("line-loading");
-        trigger.removeAttribute("aria-busy");
-      }
-      bridge?.toast?.("Live rit duurde te lang. De app blijft bruikbaar; probeer opnieuw.");
-    }, 9000);
-
     try {
-      if (!departure.tripId) throw new Error("Voor deze rit ontbreekt een trip-id.");
-
-      // 4.4.2: open eerst via ÉÉN compacte /trip call. De vorige versie
-      // startte tegelijk meerdere fetchStops=true stoptimes-aanvragen. Die
-      // responses kunnen op mobiel erg groot zijn en Safari/Chrome zichtbaar
-      // laten vastlopen terwijl JSON op de main thread wordt verwerkt.
-      let bestInfo = null;
-      let primaryError = null;
-
-      // 4.5: De Lijn Live Trip no longer depends on Transitous/MOTIS to open.
-      // Fetch the lightweight line stop order from our own backend first.
-      try {
-        const directLeg = await delijnCoreLegForDeparture(departure, stop || {});
-        if (directLeg) bestInfo = usableLegInfo(directLeg);
-      } catch (error) {
-        console.debug("OVFlow De Lijn directe haltevolgorde:", error);
-        primaryError = error;
-      }
-
-      if (requestId !== liveDepartureRequest) return;
-
-      // Transitous remains a fallback for NMBS/other operators or if De Lijn Core fails.
-      if (!bestInfo) try {
-        const payload = await core.transitousTrip(departure.tripId, {
-          detailedLegs: false,
-          timeout: 4200
-        });
-        bestInfo = candidateFromPayload(payload, departure);
-      } catch (error) {
-        primaryError = error;
-        console.debug("OVFlow compacte trip lookup:", error);
-      }
-
-      if (requestId !== liveDepartureRequest) return;
-
-      // Alleen wanneer /trip geen bruikbare haltevolgorde bevat, doen we één
-      // kleine stoptimes-fallback. Geen parallelle zware requests meer.
-      if (!bestInfo || bestInfo.stopCount <= 2) {
-        try {
-          const fallback = await core.transitousTripFromDeparture(departure, stop || {}, {
-            timeout: 4200
-          });
-          const fallbackInfo = candidateFromPayload(fallback, departure);
-          if (fallbackInfo && (!bestInfo || fallbackInfo.stopCount > bestInfo.stopCount)) {
-            bestInfo = fallbackInfo;
-          }
-        } catch (error) {
-          console.debug("OVFlow gerichte haltefallback:", error);
-          if (!primaryError) primaryError = error;
-        }
-      }
-
-      if (requestId !== liveDepartureRequest) return;
-
-      if (!bestInfo) {
-        throw primaryError || new Error("De haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
-      }
-
-      // Start de Live Trip meteen. Exacte De Lijn GPS wordt daarna door
-      // planner.js asynchroon opgehaald; GPS mag het openen nooit blokkeren.
-      plannerBridge.startLiveTripFromExternalLeg(bestInfo.leg);
+      if (!window.OVFlowLivePage?.open) throw new Error("Live-pagina is niet geladen.");
+      // OVFlow 4.6: een lijnklik doet bewust GEEN fetch meer in het hoofdscherm.
+      // We navigeren onmiddellijk naar de aparte Live bij-pagina. Daar worden
+      // haltevolgorde en GPS volledig los van de hoofdapp opgehaald.
+      window.OVFlowLivePage.open(departure, stop || {});
     } catch (error) {
-      if (requestId !== liveDepartureRequest) return;
-      console.error("OVFlow live departure:", error);
-      const message = error?.name === "AbortError"
-        ? "De live rit reageert te traag. Probeer nog eens."
-        : (error?.message || "Live rit kon niet worden geopend");
-      bridge?.toast?.(message);
-    } finally {
-      clearTimeout(watchdog);
-      if (requestId === liveDepartureRequest && trigger) {
+      console.error("OVFlow live page:", error);
+      bridge?.toast?.(error?.message || "Live pagina kon niet worden geopend");
+      if (trigger) {
         trigger.disabled = false;
         trigger.classList.remove("line-loading");
         trigger.removeAttribute("aria-busy");

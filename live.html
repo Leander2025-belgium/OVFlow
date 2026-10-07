@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#071527">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Live bij · OVFlow</title>
+  <link rel="icon" href="ovflow-icon-192.png">
+  <link rel="stylesheet" href="live.css?v=4.6.0">
+</head>
+<body>
+  <div class="live-shell">
+    <header class="live-topbar">
+      <button id="backButton" class="glass-icon" type="button" aria-label="Terug naar OVFlow">‹</button>
+      <div class="live-brand">
+        <span class="brand-mark">O</span>
+        <div><strong>Live bij</strong><small>OVFlow 4.6</small></div>
+      </div>
+      <button id="refreshButton" class="glass-icon" type="button" aria-label="Vernieuwen">↻</button>
+    </header>
+
+    <main>
+      <section class="hero glass-card">
+        <div class="hero-row">
+          <div id="lineBadge" class="line-badge">—</div>
+          <div class="hero-title">
+            <span id="modeLabel" class="eyebrow">LIVE RIT</span>
+            <h1 id="destinationLabel">Rit laden…</h1>
+            <p id="routeLabel">OVFlow haalt de lijninformatie op.</p>
+          </div>
+        </div>
+        <div class="status-row">
+          <span id="realtimeChip" class="status-chip">Verbinden…</span>
+          <span id="operatorChip" class="status-chip subtle">Openbaar vervoer</span>
+        </div>
+      </section>
+
+      <section class="metrics-grid">
+        <article class="metric glass-card">
+          <span>Vertrek</span><strong id="departureTime">—</strong><small id="departureMeta">—</small>
+        </article>
+        <article class="metric glass-card">
+          <span>Vertraging</span><strong id="delayValue">—</strong><small id="platformValue">Perron —</small>
+        </article>
+        <article class="metric glass-card">
+          <span>Haltes</span><strong id="stopCount">—</strong><small id="directionValue">Richting laden…</small>
+        </article>
+        <article class="metric glass-card">
+          <span>Voertuig</span><strong id="vehicleId">—</strong><small id="vehicleAge">GPS laden…</small>
+        </article>
+      </section>
+
+      <section class="vehicle-panel glass-card">
+        <div class="section-head">
+          <div><span class="eyebrow">ECHTE LIVE POSITIE</span><h2>Waar is het voertuig?</h2></div>
+          <span id="gpsDot" class="gps-dot waiting"></span>
+        </div>
+        <div id="vehicleState" class="vehicle-state">
+          <div class="vehicle-orb">⌁</div>
+          <div><strong>GPS-positie wordt opgehaald</strong><span>De haltevolgorde wordt ondertussen al geladen.</span></div>
+        </div>
+        <div id="vehicleDetails" class="vehicle-details hidden">
+          <div><span>Dichtstbijzijnde halte</span><strong id="nearestStop">—</strong></div>
+          <div><span>Daarna</span><strong id="nextStop">—</strong></div>
+          <div><span>Positie</span><strong id="coordinates">—</strong></div>
+          <div><span>Richting</span><strong id="bearingValue">—</strong></div>
+        </div>
+        <div class="progress-track"><span id="routeProgress"></span></div>
+        <small id="positionSource" class="source-note">Wachten op De Lijn GTFS Realtime…</small>
+      </section>
+
+      <section class="trip-panel glass-card">
+        <div class="section-head">
+          <div><span class="eyebrow">RITDETAIL</span><h2>Alle informatie</h2></div>
+        </div>
+        <div class="info-grid">
+          <div><span>Lijn</span><strong id="infoLine">—</strong></div>
+          <div><span>Richting</span><strong id="infoDestination">—</strong></div>
+          <div><span>Instaphalte</span><strong id="infoStop">—</strong></div>
+          <div><span>Trip-ID</span><strong id="infoTripId" class="mono">—</strong></div>
+          <div><span>Operator</span><strong id="infoOperator">—</strong></div>
+          <div><span>Databron</span><strong>De Lijn + OVFlow</strong></div>
+        </div>
+      </section>
+
+      <section class="stops-panel glass-card">
+        <div class="section-head stops-head">
+          <div><span class="eyebrow">VOLLEDIGE LIJN</span><h2>Alle haltes</h2></div>
+          <span id="stopsStatus" class="tiny-chip">Laden…</span>
+        </div>
+        <div id="directionTabs" class="direction-tabs"></div>
+        <div id="stopsList" class="stops-list">
+          <div class="loading-row"><span class="spinner"></span><div><strong>Haltes ophalen…</strong><small>Rechtstreeks via je OVFlow-backend</small></div></div>
+        </div>
+      </section>
+
+      <section id="errorPanel" class="error-panel glass-card hidden">
+        <strong id="errorTitle">Live informatie niet volledig beschikbaar</strong>
+        <p id="errorText"></p>
+        <button id="retryButton" type="button">Opnieuw proberen</button>
+      </section>
+    </main>
+
+    <footer>
+      <span>OVFlow 4.6.0 · Live bij</span>
+      <span id="lastUpdated">Nog niet bijgewerkt</span>
+    </footer>
+  </div>
+
+  <script src="config.js?v=4.6.0"></script>
+  <script src="live.js?v=4.6.0"></script>
+</body>
+</html>
