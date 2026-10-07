@@ -213,7 +213,7 @@
       button.addEventListener("click", () => {
         const item = items[Number(button.dataset.liveDepartureIndex)];
         if (!item?.raw) return;
-        window.OVFlowUI?.openDeparture?.(item.raw, state.stop);
+        window.OVFlowUI?.openDeparture?.(item.raw, state.stop, button);
       });
     });
   }

@@ -183,6 +183,10 @@
       platformChanged: Boolean(place.track && place.scheduledTrack && place.track !== place.scheduledTrack),
       realtime: Boolean(item?.realTime),
       cancelled,
+      // Keep the original stop event available for the on-demand Live Trip
+      // fallback. `nextStops` is normally absent because regular boards use
+      // fetchStops=false, so this does not inflate the normal nearby/stop UI.
+      rawStopTime: item,
       source: "transitous"
     };
   }
@@ -211,7 +215,7 @@
   async function transitousStopTimes({
     stopId = "", lat, lon, radius = 120, max = 8,
     time = null, windowSeconds = null, direction = "LATER", minimumEvents = null,
-    exactRadius = false, fetchStops = false
+    exactRadius = false, fetchStops = false, timeout = 12000
   }) {
     const url = new URL(`${TRANSITOUS_BASE}/api/v6/stoptimes`);
     if (stopId) {
@@ -241,7 +245,7 @@
     url.searchParams.set("withAlerts", "true");
     if (fetchStops) url.searchParams.set("fetchStops", "true");
 
-    const { response, data } = await cachedJson(url, 8_000);
+    const { response, data } = await cachedJson(url, 8_000, { timeout });
     if (!response.ok) throw new Error(data?.message || `Transitous vertrekken HTTP ${response.status}`);
     const stopName = String(data?.place?.name || "");
     return {
@@ -312,18 +316,92 @@
     };
   }
 
-  async function transitousTrip(tripId) {
+  async function transitousTrip(tripId, options = {}) {
     const id = String(tripId || "").trim();
     if (!id) throw new Error("Deze rit heeft geen trip-id.");
     const url = new URL(`${TRANSITOUS_BASE}/api/v6/trip`);
     url.searchParams.set("tripId", id);
     url.searchParams.set("withScheduledSkippedStops", "true");
-    url.searchParams.set("detailedLegs", "true");
+    // Live Trip needs the stop sequence first. The full encoded route geometry
+    // can be very large for bus routes and used to block Safari's main thread
+    // while decoding/projecting it. MOTIS keeps the stops when detailedLegs is
+    // false, so OVFlow draws a lightweight stop-to-stop route instead.
+    url.searchParams.set("detailedLegs", String(Boolean(options.detailedLegs ?? false)));
     url.searchParams.set("joinInterlinedLegs", "false");
-    url.searchParams.set("language", "nl");
-    const { response, data } = await cachedJson(url, 7_000);
+    const timeout = Math.max(2500, Math.min(12000, Number(options.timeout || 6500)));
+    const { response, data } = await cachedJson(url, 15_000, { timeout });
     if (!response.ok) throw new Error(data?.message || `Transitous rit HTTP ${response.status}`);
     return data;
+  }
+
+  function stopEventLeg(event, fallbackDeparture = {}) {
+    const raw = event?.rawStopTime || event || {};
+    const current = raw?.place || {};
+    const following = asArray(raw?.nextStops).filter(Boolean);
+    const finalPlace = following.at(-1) || raw?.tripTo || null;
+    if (!current?.name || !finalPlace?.name) return null;
+
+    const intermediateStops = following.length > 1 ? following.slice(0, -1) : [];
+    return {
+      mode: raw.mode || String(fallbackDeparture.mode || "BUS").toUpperCase(),
+      from: current,
+      to: finalPlace,
+      startTime: current.departure || current.arrival || fallbackDeparture.realtimeDeparture || fallbackDeparture.plannedDeparture || null,
+      endTime: finalPlace.arrival || finalPlace.departure || null,
+      scheduledStartTime: current.scheduledDeparture || current.scheduledArrival || fallbackDeparture.plannedDeparture || null,
+      scheduledEndTime: finalPlace.scheduledArrival || finalPlace.scheduledDeparture || null,
+      intermediateStops,
+      tripId: raw.tripId || fallbackDeparture.tripId || "",
+      tripShortName: raw.tripShortName || "",
+      routeShortName: raw.routeShortName || fallbackDeparture.line || "",
+      displayName: raw.displayName || fallbackDeparture.line || "",
+      routeLongName: raw.routeLongName || "",
+      headsign: raw.headsign || fallbackDeparture.destination || finalPlace.name || "",
+      realTime: Boolean(raw.realTime ?? fallbackDeparture.realtime),
+      cancelled: Boolean(raw.cancelled || raw.tripCancelled),
+      agencyName: raw.agencyName || fallbackDeparture.operator || "",
+      // Intentionally no legGeometry here: the Live Trip map will connect the
+      // actual stop coordinates and stay responsive even on long routes.
+      legGeometry: null
+    };
+  }
+
+  async function transitousTripFromDeparture(departure, stop = {}, options = {}) {
+    const tripId = String(departure?.tripId || "").trim();
+    if (!tripId) throw new Error("Deze rit heeft geen trip-id.");
+
+    const departureTime = parseDate(departure?.realtimeDeparture || departure?.plannedDeparture) || new Date();
+    const queryTime = new Date(departureTime.getTime() - 90_000);
+    const stopId = String(departure?.stopId || stop?.transitousId || stop?.id || "");
+    const lat = Number(departure?.stopLatitude ?? stop?.lat ?? stop?.latitude);
+    const lon = Number(departure?.stopLongitude ?? stop?.lon ?? stop?.longitude ?? stop?.lng);
+    const common = {
+      max: 24,
+      minimumEvents: 24,
+      time: queryTime,
+      windowSeconds: 12 * 60,
+      direction: "LATER",
+      fetchStops: true,
+      timeout: Math.max(2500, Math.min(9000, Number(options.timeout || 6000)))
+    };
+
+    let board = null;
+    if (stopId && !/^\d{1,3}-\d+$/.test(stopId)) {
+      try { board = await transitousStopTimes({ ...common, stopId }); } catch {}
+    }
+    if (!board && Number.isFinite(lat) && Number.isFinite(lon)) {
+      board = await transitousStopTimes({ ...common, lat, lon, radius: 140 });
+    }
+    if (!board) throw new Error("De ritgegevens konden niet via de halte worden opgehaald.");
+
+    const line = String(departure?.line || "").trim().toLowerCase();
+    const match = board.departures.find(item => String(item.tripId || "") === tripId)
+      || board.departures.find(item => line && String(item.line || "").trim().toLowerCase() === line);
+    const leg = stopEventLeg(match, departure);
+    if (!leg || !Array.isArray(leg.intermediateStops)) {
+      throw new Error("De haltevolgorde van deze rit is tijdelijk niet beschikbaar.");
+    }
+    return { legs: [leg], source: "stoptimes-fallback" };
   }
 
   async function stopDepartures(stopOrEntity, maybeStopNumber, maybeMax = 8) {
@@ -508,6 +586,7 @@
     searchPlaces,
     fetchJson,
     transitousStopTimes,
-    transitousTrip
+    transitousTrip,
+    transitousTripFromDeparture
   };
 })();

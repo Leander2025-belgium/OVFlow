@@ -125,7 +125,9 @@
     }) || transit[0] || null;
   }
 
-  async function openDeparture(departure, stop = null) {
+  let liveDepartureRequest = 0;
+
+  async function openDeparture(departure, stop = null, trigger = null) {
     if (!departure || departure.cancelled) return;
     const plannerBridge = window.OVFlowPlannerBridge;
     const bridge = window.OVFlowBridge;
@@ -134,21 +136,53 @@
       return;
     }
 
-    setView("trips", { keepScroll: true });
-    bridge?.toast?.(`Lijn ${departure.line || "—"} laden…`);
+    const requestId = ++liveDepartureRequest;
+    const originalText = trigger?.textContent || "";
+    if (trigger) {
+      trigger.disabled = true;
+      trigger.classList.add("line-loading");
+      trigger.setAttribute("aria-busy", "true");
+    }
+    bridge?.toast?.(`Lijn ${departure.line || "—"} openen…`);
 
     try {
       if (!departure.tripId) throw new Error("Voor deze rit ontbreekt een trip-id.");
-      const trip = await core.transitousTrip(departure.tripId);
-      const leg = extractTripLeg(trip, departure);
-      if (!leg) throw new Error("De volledige rit kon niet worden gevonden.");
+
+      let trip = null;
+      let primaryError = null;
+      try {
+        // Lightweight trip: stops + realtime times, without the heavy encoded
+        // route geometry that could freeze Safari on long bus routes.
+        trip = await core.transitousTrip(departure.tripId, { detailedLegs: false, timeout: 6500 });
+      } catch (error) {
+        primaryError = error;
+      }
+
+      if (requestId !== liveDepartureRequest) return;
+
+      let leg = trip ? extractTripLeg(trip, departure) : null;
+      if (!leg && core?.transitousTripFromDeparture) {
+        bridge?.toast?.(`Lijn ${departure.line || "—"}: haltevolgorde ophalen…`);
+        const fallback = await core.transitousTripFromDeparture(departure, stop || {}, { timeout: 5500 });
+        if (requestId !== liveDepartureRequest) return;
+        leg = extractTripLeg(fallback, departure);
+      }
+
+      if (!leg) throw primaryError || new Error("De volledige rit kon niet worden gevonden.");
       plannerBridge.startLiveTripFromExternalLeg(leg);
     } catch (error) {
+      if (requestId !== liveDepartureRequest) return;
       console.error("OVFlow live departure:", error);
-      bridge?.toast?.(error?.message || "Live rit kon niet worden geopend");
-      if (stop) {
-        const fallbackEvent = new CustomEvent("ovflow:livefallback", { detail: { departure, stop } });
-        document.dispatchEvent(fallbackEvent);
+      const message = error?.name === "AbortError"
+        ? "De live rit reageert te traag. Probeer nog eens."
+        : (error?.message || "Live rit kon niet worden geopend");
+      bridge?.toast?.(message);
+    } finally {
+      if (requestId === liveDepartureRequest && trigger) {
+        trigger.disabled = false;
+        trigger.classList.remove("line-loading");
+        trigger.removeAttribute("aria-busy");
+        if (!trigger.textContent.trim() && originalText) trigger.textContent = originalText;
       }
     }
   }
@@ -194,7 +228,7 @@
       button.addEventListener("click", () => {
         const place = nearbyPlacesState[Number(button.dataset.nearbyPlace)];
         const dep = place?.departures?.[Number(button.dataset.nearbyDeparture)];
-        if (dep) openDeparture(dep, place);
+        if (dep) openDeparture(dep, place, button);
       });
     });
   }

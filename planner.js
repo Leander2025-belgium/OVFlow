@@ -2078,17 +2078,13 @@
     // live.stops is the LOCKED segment the user selected when Live Trip started.
     // A realtime refresh is NEVER allowed to replace this array or alter its length/order.
     try {
-      const url = new URL("https://api.transitous.org/api/v6/trip");
-      url.searchParams.set("tripId", live.leg.tripId);
-
-      const response = await fetch(url.toString(), {
-        mode: "cors",
-        headers: { "Accept": "application/json" },
-        cache: "no-store"
-      });
-      if (!response.ok) return;
-
-      const data = await response.json();
+      // Reuse the lightweight trip loader. A realtime refresh only needs stop
+      // times/order; downloading route geometry every minute wastes bandwidth
+      // and can cause long main-thread work on mobile Safari.
+      const data = core?.transitousTrip
+        ? await core.transitousTrip(live.leg.tripId, { detailedLegs: false, timeout: 6000 })
+        : null;
+      if (!data) return;
       const itinerary = normalizeItinerary(data);
       const transitLegs = itinerary.legs.filter(leg => leg.type === "transit");
       if (!transitLegs.length) return;
@@ -2397,7 +2393,14 @@
     const live = planner.live;
     try {
       if ("wakeLock" in navigator && document.visibilityState === "visible") {
-        live.wakeLock = await navigator.wakeLock.request("screen");
+        const lock = await navigator.wakeLock.request("screen");
+        // The user may have opened another line while Safari was resolving the
+        // wake-lock promise. Never attach an old lock to a new Live Trip.
+        if (planner.live !== live || !live.active) {
+          try { await lock.release(); } catch {}
+          return;
+        }
+        live.wakeLock = lock;
       }
     } catch {}
   }
@@ -2541,18 +2544,26 @@
     toast("Live Trip gestart");
   }
 
-  async function stopLiveTrip(hide = true) {
+  function stopLiveTrip(hide = true) {
     const live = planner.live;
+    if (!live) return;
 
-    if (live?.watchId != null && navigator.geolocation) {
-      navigator.geolocation.clearWatch(live.watchId);
+    // Mark and clear the CAPTURED trip synchronously. The previous async
+    // implementation could resume after a new trip had already started and
+    // accidentally deactivate that new trip.
+    live.active = false;
+    if (live.watchId != null && navigator.geolocation) {
+      try { navigator.geolocation.clearWatch(live.watchId); } catch {}
     }
-    if (live?.tickTimer) clearInterval(live.tickTimer);
-    if (live?.refreshTimer) clearInterval(live.refreshTimer);
+    if (live.tickTimer) clearInterval(live.tickTimer);
+    if (live.refreshTimer) clearInterval(live.refreshTimer);
+    if (live.wakeLock) Promise.resolve(live.wakeLock.release()).catch(() => {});
 
-    try {
-      if (live?.wakeLock) await live.wakeLock.release();
-    } catch {}
+    live.watchId = null;
+    live.tickTimer = null;
+    live.refreshTimer = null;
+    live.wakeLock = null;
+    live.followMap = false;
 
     bridge.clearLiveTripMap?.();
 
@@ -2560,15 +2571,6 @@
     if (hide) {
       $("#navLiveTab")?.classList.remove("active");
       document.querySelector('.bottom-nav .nav-item[data-target="home"]')?.classList.add("active");
-    }
-
-    if (planner.live) {
-      planner.live.active = false;
-      planner.live.watchId = null;
-      planner.live.tickTimer = null;
-      planner.live.refreshTimer = null;
-      planner.live.wakeLock = null;
-      planner.live.followMap = false;
     }
   }
 

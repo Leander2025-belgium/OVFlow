@@ -316,8 +316,10 @@
       url.searchParams.set("maxTransfers", "0");
       url.searchParams.set("numItineraries", "6");
       url.searchParams.set("radius", "180");
-      url.searchParams.set("detailedLegs", "true");
-      url.searchParams.set("detailedTransfers", "true");
+      // Quick Live needs stop order first; a full geometry payload is not
+      // necessary and can stall mobile Safari on long bus routes.
+      url.searchParams.set("detailedLegs", "false");
+      url.searchParams.set("detailedTransfers", "false");
       url.searchParams.set("joinInterlinedLegs", "false");
       url.searchParams.set("withScheduledSkippedStops", "true");
       url.searchParams.set("realtimeMode", "REALTIME");
