@@ -46,3 +46,7 @@ npm run check
 ```
 
 Dit controleert de syntax van de belangrijkste JavaScript-bestanden.
+
+
+## OVFlow 4.7.0
+Live bij heeft nu een licht thema en een live routekaart met haltes en voertuigpositie. Zie `OVFLOW-4.7-LIGHT-LIVE-MAP.md`.

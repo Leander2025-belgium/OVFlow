@@ -3,13 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#071527">
+  <meta name="theme-color" content="#f5f8fc">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>Live bij · OVFlow</title>
   <link rel="icon" href="ovflow-icon-192.png">
-  <link rel="stylesheet" href="live.css?v=4.6.0">
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://basemaps.cartocdn.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="live.css?v=4.7.0">
 </head>
 <body>
   <div class="live-shell">
@@ -17,9 +20,9 @@
       <button id="backButton" class="glass-icon" type="button" aria-label="Terug naar OVFlow">‹</button>
       <div class="live-brand">
         <span class="brand-mark">O</span>
-        <div><strong>Live bij</strong><small>OVFlow 4.6</small></div>
+        <div><strong>Live bij</strong><small>OVFlow 4.7</small></div>
       </div>
-      <button id="refreshButton" class="glass-icon" type="button" aria-label="Vernieuwen">↻</button>
+      <button id="refreshButton" class="glass-icon refresh-button" type="button" aria-label="Vernieuwen">↻</button>
     </header>
 
     <main>
@@ -35,6 +38,40 @@
         <div class="status-row">
           <span id="realtimeChip" class="status-chip">Verbinden…</span>
           <span id="operatorChip" class="status-chip subtle">Openbaar vervoer</span>
+        </div>
+      </section>
+
+      <section class="map-card glass-card" aria-label="Live routekaart">
+        <div class="map-head">
+          <div>
+            <span class="eyebrow">LIVE KAART</span>
+            <h2>Route & voertuig</h2>
+          </div>
+          <div class="map-actions">
+            <button id="fitRouteButton" class="mini-button" type="button">Hele route</button>
+            <button id="followBusButton" class="mini-button primary" type="button">Volg bus</button>
+          </div>
+        </div>
+        <div class="map-wrap">
+          <div id="liveMap" class="live-map" aria-label="Kaart met route, haltes en voertuig"></div>
+          <div id="mapLoading" class="map-loading">
+            <span class="spinner"></span>
+            <div><strong>Kaart laden…</strong><small>Haltes verschijnen eerst, live bus daarna.</small></div>
+          </div>
+          <div id="mapUnavailable" class="map-unavailable hidden">
+            <strong>Kaart tijdelijk niet beschikbaar</strong>
+            <span>De live ritinformatie hieronder blijft werken.</span>
+          </div>
+          <div class="map-legend" aria-hidden="true">
+            <span><i class="legend-line"></i> Route</span>
+            <span><i class="legend-stop"></i> Halte</span>
+            <span><i class="legend-bus"></i> Bus</span>
+          </div>
+        </div>
+        <div class="map-summary">
+          <div><span>Nu bij</span><strong id="mapNearestStop">Positie laden…</strong></div>
+          <div><span>Volgende halte</span><strong id="mapNextStop">—</strong></div>
+          <div><span>GPS</span><strong id="mapGpsAge">Nog geen fix</strong></div>
         </div>
       </section>
 
@@ -72,20 +109,6 @@
         <small id="positionSource" class="source-note">Wachten op De Lijn GTFS Realtime…</small>
       </section>
 
-      <section class="trip-panel glass-card">
-        <div class="section-head">
-          <div><span class="eyebrow">RITDETAIL</span><h2>Alle informatie</h2></div>
-        </div>
-        <div class="info-grid">
-          <div><span>Lijn</span><strong id="infoLine">—</strong></div>
-          <div><span>Richting</span><strong id="infoDestination">—</strong></div>
-          <div><span>Instaphalte</span><strong id="infoStop">—</strong></div>
-          <div><span>Trip-ID</span><strong id="infoTripId" class="mono">—</strong></div>
-          <div><span>Operator</span><strong id="infoOperator">—</strong></div>
-          <div><span>Databron</span><strong>De Lijn + OVFlow</strong></div>
-        </div>
-      </section>
-
       <section class="stops-panel glass-card">
         <div class="section-head stops-head">
           <div><span class="eyebrow">VOLLEDIGE LIJN</span><h2>Alle haltes</h2></div>
@@ -97,6 +120,21 @@
         </div>
       </section>
 
+      <details class="trip-panel glass-card details-card">
+        <summary>
+          <div><span class="eyebrow">RITDETAIL</span><strong>Alle technische informatie</strong></div>
+          <span class="summary-arrow">⌄</span>
+        </summary>
+        <div class="info-grid">
+          <div><span>Lijn</span><strong id="infoLine">—</strong></div>
+          <div><span>Richting</span><strong id="infoDestination">—</strong></div>
+          <div><span>Instaphalte</span><strong id="infoStop">—</strong></div>
+          <div><span>Trip-ID</span><strong id="infoTripId" class="mono">—</strong></div>
+          <div><span>Operator</span><strong id="infoOperator">—</strong></div>
+          <div><span>Databron</span><strong>De Lijn + OVFlow</strong></div>
+        </div>
+      </details>
+
       <section id="errorPanel" class="error-panel glass-card hidden">
         <strong id="errorTitle">Live informatie niet volledig beschikbaar</strong>
         <p id="errorText"></p>
@@ -105,12 +143,13 @@
     </main>
 
     <footer>
-      <span>OVFlow 4.6.0 · Live bij</span>
+      <span>OVFlow 4.7.0 · Light Live Map</span>
       <span id="lastUpdated">Nog niet bijgewerkt</span>
     </footer>
   </div>
 
-  <script src="config.js?v=4.6.0"></script>
-  <script src="live.js?v=4.6.0"></script>
+  <script src="config.js?v=4.7.0"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="live.js?v=4.7.0"></script>
 </body>
 </html>

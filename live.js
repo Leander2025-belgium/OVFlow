@@ -5,7 +5,10 @@
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
   const PREFIX = "ovflow-live-page:";
   const $ = id => document.getElementById(id);
-  const state = { payload: null, routes: [], routeIndex: 0, position: null, timer: null, loading: false };
+  const state = {
+    payload: null, routes: [], routeIndex: 0, position: null, timer: null, loading: false,
+    map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, routeKey: "", ready: false, failed: false, followBus: false }
+  };
 
   const esc = value => String(value ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -181,6 +184,172 @@
 
   function currentRoute() { return state.routes[state.routeIndex] || null; }
 
+  function stopIcon(kind = "normal") {
+    if (!window.L) return null;
+    const cls = kind === "boarding" ? " boarding" : kind === "current" ? " current" : "";
+    return L.divIcon({ className: "ov-stop-icon", html: `<div class="stop-marker${cls}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+  }
+
+  function busIcon(bearing) {
+    if (!window.L) return null;
+    const b = Number.isFinite(Number(bearing)) ? Number(bearing) : 0;
+    return L.divIcon({
+      className: "ov-bus-icon",
+      html: `<div class="bus-marker"><span style="display:block;transform:rotate(${b}deg)">↑</span></div>`,
+      iconSize: [38, 38], iconAnchor: [19, 19]
+    });
+  }
+
+  function initMap() {
+    if (state.map.ready || state.map.failed) return state.map.ready;
+    const mapEl = $("liveMap");
+    if (!mapEl || !window.L) {
+      state.map.failed = true;
+      $("mapLoading")?.classList.add("hidden");
+      $("mapUnavailable")?.classList.remove("hidden");
+      return false;
+    }
+    try {
+      const map = L.map(mapEl, { zoomControl: true, preferCanvas: true, minZoom: 6, maxZoom: 18 });
+      const tile = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+        subdomains: "abcd", maxZoom: 20,
+        attribution: '&copy; OpenStreetMap &copy; CARTO'
+      }).addTo(map);
+      const routeLayer = L.layerGroup().addTo(map);
+      map.setView([50.85, 4.35], 8);
+      state.map.instance = map;
+      state.map.tile = tile;
+      state.map.routeLayer = routeLayer;
+      state.map.ready = true;
+      $("mapLoading")?.classList.add("hidden");
+      setTimeout(() => map.invalidateSize(), 80);
+      return true;
+    } catch (error) {
+      console.warn("OVFlow live map kon niet starten", error);
+      state.map.failed = true;
+      $("mapLoading")?.classList.add("hidden");
+      $("mapUnavailable")?.classList.remove("hidden");
+      return false;
+    }
+  }
+
+  function routeMapKey(route) {
+    if (!route) return "";
+    return `${route.publicLine || state.payload?.line || ""}|${route.directionCode || ""}|${route.stops?.length || 0}|${route.stops?.[0]?.stopId || ""}|${route.stops?.at(-1)?.stopId || ""}`;
+  }
+
+  function validStopCoords(route) {
+    return (route?.stops || []).filter(s => Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lon)));
+  }
+
+  function fitRoute() {
+    const map = state.map.instance;
+    const route = currentRoute();
+    if (!map || !route || !window.L) return;
+    const coords = validStopCoords(route).map(s => [Number(s.lat), Number(s.lon)]);
+    if (coords.length >= 2) map.fitBounds(L.latLngBounds(coords), { padding: [32, 32], maxZoom: 14 });
+    else if (coords.length === 1) map.setView(coords[0], 15);
+  }
+
+  function updateMapSummary() {
+    const route = currentRoute();
+    const pos = state.position;
+    if (!route || !pos) {
+      setText("mapNearestStop", "Positie niet beschikbaar");
+      setText("mapNextStop", route?.stops?.[0]?.name || "—");
+      setText("mapGpsAge", "Geen GPS-fix");
+      return;
+    }
+    const i = nearestVehicleIndex(route, pos);
+    setText("mapNearestStop", i >= 0 ? route.stops[i].name : "—");
+    setText("mapNextStop", i >= 0 && i + 1 < route.stops.length ? route.stops[i + 1].name : "Eindhalte");
+    setText("mapGpsAge", ageText(pos.timestamp));
+  }
+
+  function updateMapHighlights() {
+    const route = currentRoute();
+    if (!state.map.ready || !route) return;
+    const boarding = boardingIndex(route);
+    const vehicle = nearestVehicleIndex(route, state.position);
+    state.map.stopMarkers.forEach((marker, i) => {
+      if (!marker?.setIcon) return;
+      marker.setIcon(stopIcon(i === vehicle ? "current" : i === boarding ? "boarding" : "normal"));
+      marker.setZIndexOffset(i === vehicle ? 500 : i === boarding ? 300 : 0);
+    });
+    updateMapSummary();
+  }
+
+  function renderMapRoute(force = false) {
+    const route = currentRoute();
+    if (!route || !initMap()) return;
+    const key = routeMapKey(route);
+    if (!force && state.map.routeKey === key) {
+      updateMapHighlights();
+      updateBusOnMap();
+      return;
+    }
+
+    const map = state.map.instance;
+    state.map.routeLayer.clearLayers();
+    state.map.stopMarkers = [];
+    state.map.routeLine = null;
+    state.map.routeKey = key;
+
+    const coords = validStopCoords(route).map(s => [Number(s.lat), Number(s.lon)]);
+    if (coords.length >= 2) {
+      state.map.routeLine = L.polyline(coords, { color: "#147be4", weight: 6, opacity: .82, lineJoin: "round", lineCap: "round" }).addTo(state.map.routeLayer);
+      L.polyline(coords, { color: "#ffffff", weight: 2, opacity: .9, lineJoin: "round", lineCap: "round" }).addTo(state.map.routeLayer);
+    }
+
+    const boarding = boardingIndex(route);
+    route.stops.forEach((stop, i) => {
+      if (!Number.isFinite(Number(stop.lat)) || !Number.isFinite(Number(stop.lon))) {
+        state.map.stopMarkers.push(null);
+        return;
+      }
+      const marker = L.marker([Number(stop.lat), Number(stop.lon)], {
+        icon: stopIcon(i === boarding ? "boarding" : "normal"),
+        keyboard: false,
+        zIndexOffset: i === boarding ? 300 : 0
+      }).addTo(state.map.routeLayer);
+      marker.bindTooltip(`${i + 1}. ${esc(stop.name)}`, { direction: "top", className: "ov-tooltip", offset: [0, -7] });
+      marker.on("click", () => {
+        const row = document.querySelector(`.stop-row[data-stop-index="${i}"]`);
+        row?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      state.map.stopMarkers.push(marker);
+    });
+    fitRoute();
+    updateMapHighlights();
+    updateBusOnMap();
+    setTimeout(() => map.invalidateSize(), 80);
+  }
+
+  function updateBusOnMap() {
+    if (!state.map.ready) return;
+    const map = state.map.instance;
+    const pos = state.position;
+    if (!pos || !Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lon))) {
+      if (state.map.busMarker) {
+        map.removeLayer(state.map.busMarker);
+        state.map.busMarker = null;
+      }
+      updateMapSummary();
+      return;
+    }
+    const ll = [Number(pos.lat), Number(pos.lon)];
+    if (!state.map.busMarker) {
+      state.map.busMarker = L.marker(ll, { icon: busIcon(pos.bearing), zIndexOffset: 1000, keyboard: false }).addTo(map);
+      state.map.busMarker.bindTooltip(`Voertuig ${esc(pos.vehicleId || "live")}`, { direction: "top", className: "ov-tooltip", offset: [0, -16] });
+    } else {
+      state.map.busMarker.setLatLng(ll);
+      state.map.busMarker.setIcon(busIcon(pos.bearing));
+      state.map.busMarker.setTooltipContent(`Voertuig ${esc(pos.vehicleId || "live")} · ${esc(ageText(pos.timestamp))}`);
+    }
+    if (state.map.followBus) map.setView(ll, Math.max(15, map.getZoom()));
+    updateMapHighlights();
+  }
+
   function nearestVehicleIndex(route, position) {
     if (!route || !position) return -1;
     let best = -1, dist = Infinity;
@@ -226,12 +395,13 @@
     $("stopsList").innerHTML = route.stops.map((stop, i) => {
       const cls = [i === boarding ? "boarding" : "", i === vehicle ? "current" : ""].filter(Boolean).join(" ");
       const extra = i === vehicle ? "Voertuig hier" : i === boarding ? "Jouw halte" : stop.stopId ? `#${esc(stop.stopId)}` : "";
-      return `<div class="stop-row ${cls}">
+      return `<div class="stop-row ${cls}" data-stop-index="${i}">
         <div class="stop-dot">${i + 1}</div>
         <div class="stop-main"><strong>${esc(stop.name)}</strong><small>${esc(stop.direction || route.directionName || "")}</small></div>
         <div class="stop-extra">${extra}</div>
       </div>`;
     }).join("");
+    renderMapRoute();
   }
 
   async function fetchVehicle() {
@@ -267,6 +437,7 @@
       setText("vehicleAge", "Geen GPS-fix");
       setText("positionSource", "Haltevolgorde beschikbaar · exacte GPS is optioneel");
       $("routeProgress").style.width = "0%";
+      updateBusOnMap();
       if (route) renderRoutes();
       return;
     }
@@ -288,6 +459,7 @@
       $("routeProgress").style.width = `${pct}%`;
       renderRoutes();
     }
+    updateBusOnMap();
   }
 
   async function refreshAll() {
@@ -314,6 +486,15 @@
   function setup() {
     state.payload = readPayload();
     renderBase();
+    initMap();
+    $("fitRouteButton")?.addEventListener("click", () => { state.map.followBus = false; fitRoute(); });
+    $("followBusButton")?.addEventListener("click", () => {
+      state.map.followBus = true;
+      const pos = state.position;
+      if (state.map.instance && pos && Number.isFinite(Number(pos.lat)) && Number.isFinite(Number(pos.lon))) {
+        state.map.instance.setView([Number(pos.lat), Number(pos.lon)], 15);
+      }
+    });
     $("backButton").addEventListener("click", () => history.length > 1 ? history.back() : location.assign("index.html"));
     $("refreshButton").addEventListener("click", refreshAll);
     $("retryButton").addEventListener("click", refreshAll);
