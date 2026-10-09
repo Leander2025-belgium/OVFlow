@@ -76,15 +76,37 @@
     return 2 * R * Math.atan2(Math.sqrt(q), Math.sqrt(1-q));
   }
 
-  async function getJson(url, timeout = 6500) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const res = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store", signal: controller.signal });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
-      return data;
-    } finally { clearTimeout(timer); }
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function getJson(url, timeout = 18000, retries = 1) {
+    let lastError = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
+      try {
+        const res = await fetch(url, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+          signal: controller.signal
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+        return data;
+      } catch (error) {
+        lastError = error;
+        const aborted = error?.name === "AbortError";
+        const transient = aborted || /fetch|network|failed|load/i.test(String(error?.message || error));
+        if (attempt < retries && transient) {
+          await wait(500 + attempt * 600);
+          continue;
+        }
+        if (aborted) throw new Error("De live verbinding duurt langer dan verwacht. OVFlow probeert automatisch opnieuw.");
+        throw error;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+    throw lastError || new Error("Live gegevens niet bereikbaar");
   }
 
   function setText(id, value) { const el = $(id); if (el) el.textContent = value ?? "—"; }
@@ -164,7 +186,7 @@
       const url = new URL(`${API_BASE}/api/v4/delijn/line-stops`);
       url.searchParams.set("line", p.line);
       if (area) url.searchParams.set("area", area);
-      return getJson(url, 7000);
+      return getJson(url, 22000, 1);
     }
 
     let data;
@@ -222,7 +244,7 @@
     if (p.area || p.stop?.municipality) url.searchParams.set("area", p.area || p.stop?.municipality || "");
     if (p.destination || route.directionName) url.searchParams.set("destination", p.destination || route.directionName || "");
     if (route.directionCode) url.searchParams.set("direction", route.directionCode);
-    return getJson(url, 12000);
+    return getJson(url, 25000, 1);
   }
 
   function pointsFromShape(data) {
@@ -674,7 +696,7 @@
       const url = new URL(`${API_BASE}/api/v4/vehicle-position`);
       url.searchParams.set("tripId", p.tripId);
       if (p.line) url.searchParams.set("line", p.line);
-      const data = await getJson(url, 5500);
+      const data = await getJson(url, 9000, 0);
       state.position = data?.position && !data.position.stale ? data.position : null;
       renderVehicle(state.position ? "" : "De Lijn levert voor deze rit momenteel geen exacte voertuigpositie.");
       if (!state.position) ensureUserLocation().catch(() => {});
@@ -731,21 +753,61 @@
     }
     updateBusOnMap();
   }
+  function scheduleRouteRecovery() {
+    if (state.routes.length || state._routeRecoveryTimer) return;
+    state._routeRecoveryTimer = setTimeout(async () => {
+      state._routeRecoveryTimer = null;
+      if (state.routes.length || document.hidden) return;
+      try {
+        await fetchRoutes();
+        clearError();
+        renderVehicle();
+      } catch (error) {
+        console.warn("OVFlow: achtergrondretry haltevolgorde mislukt", error);
+      }
+    }, 3500);
+  }
+
   async function refreshAll() {
     if (state.loading) return;
     state.loading = true;
     clearError();
     $("refreshButton").textContent = "…";
+    let routeError = null;
     try {
-      if (!state.routes.length) await fetchRoutes();
+      if (!state.routes.length) {
+        try {
+          await fetchRoutes();
+        } catch (error) {
+          routeError = error;
+          if (state.payload.preloadedStops.length >= 2) {
+            state.routes = [{
+              directionCode: "RIT",
+              directionName: state.payload.destination || "Rit",
+              publicLine: state.payload.line,
+              stops: state.payload.preloadedStops.map(compactApiStop)
+            }];
+            state.routeIndex = 0;
+            renderRoutes();
+          } else {
+            setText("stopsStatus", "Nog laden…");
+            $("stopsList").innerHTML = '<div class="loading-row"><span class="spinner"></span><strong>Haltes opnieuw ophalen…</strong></div>';
+            scheduleRouteRecovery();
+          }
+        }
+      }
+
+      // Vehicle GPS must never block the route/stop UI. fetchVehicle handles its
+      // own errors and can fall back to the phone location.
       await fetchVehicle();
+
+      if (routeError && !state.routes.length) {
+        showError("Haltes laden iets trager", "OVFlow blijft automatisch proberen. Kaart en jouw locatie blijven ondertussen bruikbaar.");
+      }
       setText("lastUpdated", `Bijgewerkt ${new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date())}`);
     } catch (error) {
-      showError("Live informatie kon niet volledig laden", error?.message || String(error));
-      if (state.payload.preloadedStops.length >= 2 && !state.routes.length) {
-        state.routes = [{ directionCode: "RIT", directionName: state.payload.destination || "Rit", publicLine: state.payload.line, stops: state.payload.preloadedStops.map(compactApiStop) }];
-        renderRoutes();
-      }
+      console.warn("OVFlow live refresh gedeeltelijk mislukt", error);
+      showError("Een onderdeel is tijdelijk niet bereikbaar", "De live-pagina blijft werken en probeert automatisch opnieuw.");
     } finally {
       state.loading = false;
       $("refreshButton").textContent = "↻";
@@ -772,6 +834,7 @@
     document.addEventListener("visibilitychange", () => { if (!document.hidden) fetchVehicle(); });
     window.addEventListener("pagehide", () => {
       if (state.timer) clearInterval(state.timer);
+      if (state._routeRecoveryTimer) clearTimeout(state._routeRecoveryTimer);
       if (state.geoWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(state.geoWatchId);
     });
   }
