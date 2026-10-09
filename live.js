@@ -182,9 +182,108 @@
     state.routes = routes;
     state.routeIndex = routes.map(scoreRoute).reduce((best, score, i, arr) => score > arr[best] ? i : best, 0);
     renderRoutes();
+    fetchExactShape().catch(() => {});
   }
 
   function currentRoute() { return state.routes[state.routeIndex] || null; }
+
+  function setShapeChip(text, stateName = "") {
+    const chip = $("shapeChip");
+    if (!chip) return;
+    chip.textContent = text;
+    chip.className = `tiny-chip shape-chip ${stateName}`.trim();
+  }
+
+  function shapeFitsRoute(points, route) {
+    const stops = (route?.stops || []).filter(s => num(s.lat) !== null && num(s.lon) !== null);
+    if (points.length < 2 || stops.length < 2) return true;
+
+    // A valid GTFS shape must pass reasonably close to both ends of the selected
+    // Live route. This catches stale planner tripIds (e.g. an Antwerp trip while
+    // viewing Oostende–Brugge) before a wrong route reaches the map.
+    const anchors = [stops[0], stops.at(-1)];
+    return anchors.every(stop => {
+      let nearest = Infinity;
+      // Sampling keeps this cheap even for shapes with several thousand points.
+      const step = Math.max(1, Math.floor(points.length / 1200));
+      for (let i = 0; i < points.length; i += step) {
+        nearest = Math.min(nearest, haversine(stop.lat, stop.lon, points[i][0], points[i][1]));
+        if (nearest < 1200) break;
+      }
+      return nearest <= 5000;
+    });
+  }
+
+  async function requestShape(route, includeTripId = true) {
+    const p = state.payload;
+    const url = new URL(`${API_BASE}/api/v4/delijn/route-shape`);
+    if (includeTripId && p.tripId) url.searchParams.set("tripId", p.tripId);
+    url.searchParams.set("line", route.publicLine || p.line || "");
+    if (p.area || p.stop?.municipality) url.searchParams.set("area", p.area || p.stop?.municipality || "");
+    if (p.destination || route.directionName) url.searchParams.set("destination", p.destination || route.directionName || "");
+    if (route.directionCode) url.searchParams.set("direction", route.directionCode);
+    return getJson(url, 12000);
+  }
+
+  function pointsFromShape(data) {
+    return (Array.isArray(data?.points) ? data.points : [])
+      .map(pt => Array.isArray(pt) ? [num(pt[0]), num(pt[1])] : [num(pt?.lat), num(pt?.lon)])
+      .filter(pt => pt[0] !== null && pt[1] !== null);
+  }
+
+  async function fetchExactShape(route = currentRoute()) {
+    const p = state.payload;
+    if (!route || !API_BASE || /train|trein/i.test(p.mode || "")) {
+      setShapeChip("Route via haltes", "fallback");
+      return;
+    }
+    if (Array.isArray(route.exactShapePoints) && route.exactShapePoints.length >= 2) {
+      setShapeChip(route.shapeMeta?.exactTripMatch ? "Exacte ritvorm" : "GTFS-route", "ready");
+      return;
+    }
+    if (route._shapeLoading) return;
+    route._shapeLoading = true;
+    setShapeChip("GTFS-route laden…", "loading");
+    try {
+      let data = await requestShape(route, true);
+      let points = pointsFromShape(data);
+      if (points.length < 2) throw new Error("GTFS-shape bevat onvoldoende routepunten");
+
+      // Never display a geographically impossible exact-trip result. Retry once
+      // without tripId so the backend selects by line + destination + area.
+      if (!shapeFitsRoute(points, route)) {
+        console.warn("OVFlow: verdachte tripId-shape genegeerd; fallback op lijn/richting.", {
+          requestedLine: route.publicLine || p.line,
+          tripId: p.tripId,
+          returnedLine: data?.line,
+          returnedRoute: data?.routeName
+        });
+        data = await requestShape(route, false);
+        points = pointsFromShape(data);
+        if (points.length < 2 || !shapeFitsRoute(points, route)) {
+          throw new Error("GTFS-route past niet bij de gekozen haltes");
+        }
+        data = { ...data, exactTripMatch: false, recoveredFromBadTripId: true };
+      }
+
+      // Extra line sanity check on the browser side as defense in depth.
+      const requestedLine = norm(route.publicLine || p.line || "");
+      const returnedLine = norm(data?.line || "");
+      if (requestedLine && returnedLine && requestedLine !== returnedLine) {
+        throw new Error(`Verkeerde GTFS-lijn ontvangen (${data?.line})`);
+      }
+
+      route.exactShapePoints = points;
+      route.shapeMeta = data;
+      setShapeChip(data.exactTripMatch ? `Exacte rit · ${points.length} ptn` : `GTFS-route · ${points.length} ptn`, "ready");
+      renderMapRoute(true);
+    } catch (error) {
+      console.warn("Exacte GTFS-route niet beschikbaar, halte-route blijft actief:", error);
+      setShapeChip("Route via haltes", "fallback");
+    } finally {
+      route._shapeLoading = false;
+    }
+  }
 
   function stopIcon(kind = "normal") {
     if (!window.L) return null;
@@ -244,18 +343,24 @@
 
   function routeMapKey(route) {
     if (!route) return "";
-    return `${route.publicLine || state.payload?.line || ""}|${route.directionCode || ""}|${route.stops?.length || 0}|${route.stops?.[0]?.stopId || ""}|${route.stops?.at(-1)?.stopId || ""}`;
+    return `${route.publicLine || state.payload?.line || ""}|${route.directionCode || ""}|${route.stops?.length || 0}|${route.stops?.[0]?.stopId || ""}|${route.stops?.at(-1)?.stopId || ""}|${route.shapeMeta?.shapeId || "fallback"}|${route.exactShapePoints?.length || 0}`;
   }
 
   function validStopCoords(route) {
     return (route?.stops || []).filter(s => Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lon)));
   }
 
+  function routeCoords(route) {
+    const exact = Array.isArray(route?.exactShapePoints) ? route.exactShapePoints : [];
+    if (exact.length >= 2) return exact.map(pt => [Number(pt[0]), Number(pt[1])]).filter(pt => pt.every(Number.isFinite));
+    return validStopCoords(route).map(s => [Number(s.lat), Number(s.lon)]);
+  }
+
   function fitRoute() {
     const map = state.map.instance;
     const route = currentRoute();
     if (!map || !route || !window.L) return;
-    const coords = validStopCoords(route).map(s => [Number(s.lat), Number(s.lon)]);
+    const coords = routeCoords(route);
     if (coords.length >= 2) map.fitBounds(L.latLngBounds(coords), { padding: [32, 32], maxZoom: 14 });
     else if (coords.length === 1) map.setView(coords[0], 15);
   }
@@ -341,9 +446,9 @@
     state.map.routeLine = null;
     state.map.routeKey = key;
 
-    const coords = validStopCoords(route).map(s => [Number(s.lat), Number(s.lon)]);
+    const coords = routeCoords(route);
     if (coords.length >= 2) {
-      state.map.routeLine = L.polyline(coords, { color: "#147be4", weight: 6, opacity: .82, lineJoin: "round", lineCap: "round" }).addTo(state.map.routeLayer);
+      state.map.routeLine = L.polyline(coords, { color: "#147be4", weight: 6, opacity: .86, lineJoin: "round", lineCap: "round", smoothFactor: 1 }).addTo(state.map.routeLayer);
       L.polyline(coords, { color: "#ffffff", weight: 2, opacity: .9, lineJoin: "round", lineCap: "round" }).addTo(state.map.routeLayer);
     }
 
@@ -430,6 +535,7 @@
     tabs.querySelectorAll("[data-route-index]").forEach(btn => btn.addEventListener("click", () => {
       state.routeIndex = Number(btn.dataset.routeIndex);
       renderRoutes();
+      fetchExactShape().catch(() => {});
       renderVehicle();
     }));
 

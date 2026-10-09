@@ -24,3 +24,11 @@ main{display:grid;gap:14px}.glass-card{background:linear-gradient(145deg,rgba(25
 .error-panel{border-color:rgba(217,74,89,.16);background:#fff8f9}.error-panel p{color:var(--muted)}.error-panel button{border:0;border-radius:13px;padding:11px 15px;background:#163d65;color:#fff;font-weight:800}.hidden{display:none!important}footer{display:flex;justify-content:space-between;gap:10px;color:#8290a0;font-size:11px;padding:18px 6px}
 @media(max-width:720px){.live-shell{padding-left:10px;padding-right:10px}.metrics-grid{grid-template-columns:repeat(2,1fr)}.vehicle-details{grid-template-columns:repeat(2,1fr)}.info-grid{grid-template-columns:1fr 1fr}.hero{padding:17px}.line-badge{min-width:62px;height:62px;font-size:23px}.hero h1{font-size:26px}.vehicle-panel,.trip-panel,.stops-panel{padding:16px}.map-card{padding:12px}.map-wrap,.live-map{height:390px;min-height:390px}.map-summary{grid-template-columns:1fr 1fr}.map-summary>div:last-child{grid-column:1/-1}.map-head{align-items:flex-start}.map-actions{gap:5px}.mini-button{padding:8px 9px;font-size:11px}}
 @media(max-width:430px){.info-grid{grid-template-columns:1fr}.vehicle-details{grid-template-columns:1fr 1fr}.metric strong{font-size:22px}.stop-row{grid-template-columns:32px 1fr}.stop-extra{grid-column:2;text-align:left}.map-wrap,.live-map{height:350px;min-height:350px}.map-head{display:grid}.map-actions{justify-content:flex-start}.map-summary{grid-template-columns:1fr}.map-summary>div:last-child{grid-column:auto}.map-legend{max-width:calc(100% - 24px)}.leaflet-control-attribution{max-width:180px;white-space:normal}}
+
+
+/* OVFlow 4.8 — exact GTFS route shape */
+.shape-chip{white-space:nowrap;align-self:center;background:rgba(20,123,228,.08);color:#0b67bd;border:1px solid rgba(20,123,228,.16)}
+.shape-chip.ready{background:rgba(16,185,129,.10);color:#08785b;border-color:rgba(16,185,129,.20)}
+.shape-chip.loading{background:rgba(20,123,228,.08);color:#0b67bd}
+.shape-chip.fallback{background:rgba(100,116,139,.10);color:#526070;border-color:rgba(100,116,139,.16)}
+@media (max-width:520px){.map-actions{flex-wrap:wrap}.shape-chip{order:-1;width:100%;text-align:center}}

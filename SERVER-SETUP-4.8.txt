@@ -1,0 +1,7 @@
+Voor de exacte GTFS-route heeft OVFlow 4.8 ook de serverpatch nodig:
+OVFlow-4.8.0-server-GTFS-shapes.zip
+
+Na installatie gebruikt Live bij:
+/api/v4/delijn/route-shape?tripId=...&line=...
+
+Zonder de serverpatch blijft 4.8 veilig terugvallen op de halte→halte-route.
