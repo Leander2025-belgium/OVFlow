@@ -2,155 +2,113 @@
 <html lang="nl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f5f8fc">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#f5f8fb">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Live bij · OVFlow</title>
+  <title>Live · OVFlow</title>
   <link rel="icon" href="ovflow-icon-192.png">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="live.css?v=4.8.1">
+  <link rel="stylesheet" href="live.css?v=4.9.0">
 </head>
 <body>
   <div class="live-shell">
     <header class="live-topbar">
-      <button id="backButton" class="glass-icon" type="button" aria-label="Terug naar OVFlow">‹</button>
-      <div class="live-brand">
-        <span class="brand-mark">O</span>
-        <div><strong>Live bij</strong><small>OVFlow 4.8</small></div>
+      <button id="backButton" class="icon-button" type="button" aria-label="Terug">‹</button>
+      <div class="brand-lockup">
+        <span class="brand-dot">O</span>
+        <div><strong>Live</strong><small>OVFlow 4.9</small></div>
       </div>
-      <button id="refreshButton" class="glass-icon refresh-button" type="button" aria-label="Vernieuwen">↻</button>
+      <button id="refreshButton" class="icon-button refresh-button" type="button" aria-label="Vernieuwen">↻</button>
     </header>
 
-    <main>
-      <section class="hero glass-card">
-        <div class="hero-row">
-          <div id="lineBadge" class="line-badge">—</div>
-          <div class="hero-title">
-            <span id="modeLabel" class="eyebrow">LIVE RIT</span>
-            <h1 id="destinationLabel">Rit laden…</h1>
-            <p id="routeLabel">OVFlow haalt de lijninformatie op.</p>
-          </div>
+    <main class="live-dashboard">
+      <section class="route-hero">
+        <div id="lineBadge" class="line-badge">—</div>
+        <div class="route-copy">
+          <span id="modeLabel" class="eyebrow">LIVE RIT</span>
+          <h1 id="destinationLabel">Rit laden…</h1>
+          <p id="routeLabel">Lijninformatie ophalen…</p>
         </div>
-        <div class="status-row">
+        <div class="hero-chips">
           <span id="realtimeChip" class="status-chip">Verbinden…</span>
-          <span id="operatorChip" class="status-chip subtle">Openbaar vervoer</span>
+          <span id="operatorChip" class="status-chip subtle">De Lijn</span>
         </div>
       </section>
 
-      <section class="map-card glass-card" aria-label="Live routekaart">
-        <div class="map-head">
-          <div>
-            <span class="eyebrow">LIVE KAART</span>
-            <h2>Route & voertuig</h2>
-          </div>
+      <section class="map-card" aria-label="Live routekaart">
+        <div class="map-toolbar">
+          <span id="shapeChip" class="tiny-chip shape-chip">GTFS-route laden…</span>
           <div class="map-actions">
-            <span id="shapeChip" class="tiny-chip shape-chip">GTFS-route laden…</span>
-            <button id="fitRouteButton" class="mini-button" type="button">Hele route</button>
-            <button id="followBusButton" class="mini-button primary" type="button">Volg bus</button>
+            <button id="fitRouteButton" class="mini-button" type="button">Route</button>
+            <button id="followBusButton" class="mini-button primary" type="button">Volg</button>
           </div>
         </div>
         <div class="map-wrap">
-          <div id="liveMap" class="live-map" aria-label="Kaart met route, haltes en voertuig"></div>
-          <div id="mapLoading" class="map-loading">
-            <span class="spinner"></span>
-            <div><strong>Kaart laden…</strong><small>Haltes verschijnen eerst, live bus daarna.</small></div>
-          </div>
-          <div id="mapUnavailable" class="map-unavailable hidden">
-            <strong>Kaart tijdelijk niet beschikbaar</strong>
-            <span>De live ritinformatie hieronder blijft werken.</span>
-          </div>
-          <div class="map-legend" aria-hidden="true">
-            <span><i class="legend-line"></i> Route</span>
-            <span><i class="legend-stop"></i> Halte</span>
-            <span><i class="legend-bus"></i> Bus</span>
-          </div>
-        </div>
-        <div class="map-summary">
-          <div><span>Nu bij</span><strong id="mapNearestStop">Positie laden…</strong></div>
-          <div><span>Volgende halte</span><strong id="mapNextStop">—</strong></div>
-          <div><span>GPS</span><strong id="mapGpsAge">Nog geen fix</strong></div>
+          <div id="liveMap" class="live-map"></div>
+          <div id="mapLoading" class="map-loading"><span class="spinner"></span><strong>Kaart laden…</strong></div>
+          <div id="mapUnavailable" class="map-unavailable hidden"><strong>Kaart niet beschikbaar</strong></div>
+          <div class="map-legend"><span><i class="legend-line"></i> Route</span><span><i class="legend-stop"></i> Haltes</span><span><i class="legend-bus"></i> Voertuig</span><span><i class="legend-user"></i> Jij</span></div>
         </div>
       </section>
 
-      <section class="metrics-grid">
-        <article class="metric glass-card">
-          <span>Vertrek</span><strong id="departureTime">—</strong><small id="departureMeta">—</small>
-        </article>
-        <article class="metric glass-card">
-          <span>Vertraging</span><strong id="delayValue">—</strong><small id="platformValue">Perron —</small>
-        </article>
-        <article class="metric glass-card">
-          <span>Haltes</span><strong id="stopCount">—</strong><small id="directionValue">Richting laden…</small>
-        </article>
-        <article class="metric glass-card">
-          <span>Voertuig</span><strong id="vehicleId">—</strong><small id="vehicleAge">GPS laden…</small>
-        </article>
-      </section>
-
-      <section class="vehicle-panel glass-card">
-        <div class="section-head">
-          <div><span class="eyebrow">ECHTE LIVE POSITIE</span><h2>Waar is het voertuig?</h2></div>
-          <span id="gpsDot" class="gps-dot waiting"></span>
-        </div>
-        <div id="vehicleState" class="vehicle-state">
-          <div class="vehicle-orb">⌁</div>
-          <div><strong>GPS-positie wordt opgehaald</strong><span>De haltevolgorde wordt ondertussen al geladen.</span></div>
-        </div>
-        <div id="vehicleDetails" class="vehicle-details hidden">
-          <div><span>Dichtstbijzijnde halte</span><strong id="nearestStop">—</strong></div>
-          <div><span>Daarna</span><strong id="nextStop">—</strong></div>
-          <div><span>Positie</span><strong id="coordinates">—</strong></div>
-          <div><span>Richting</span><strong id="bearingValue">—</strong></div>
+      <section class="journey-card">
+        <div class="journey-main">
+          <div class="journey-next">
+            <span class="label">VOLGENDE HALTE</span>
+            <strong id="mapNextStop">—</strong>
+            <small id="mapNearestStop">Positie bepalen…</small>
+          </div>
+          <div class="journey-time">
+            <span class="label">VERTREK</span>
+            <strong id="departureTime">—</strong>
+            <small id="departureMeta">—</small>
+          </div>
         </div>
         <div class="progress-track"><span id="routeProgress"></span></div>
-        <small id="positionSource" class="source-note">Wachten op De Lijn GTFS Realtime…</small>
+        <div class="quick-facts">
+          <div><span>Vertraging</span><strong id="delayValue">—</strong></div>
+          <div><span>Voertuig</span><strong id="vehicleId">—</strong></div>
+          <div><span>GPS</span><strong id="mapGpsAge">—</strong></div>
+          <div><span>Haltes over</span><strong id="stopCount">—</strong></div>
+        </div>
       </section>
 
-      <section class="stops-panel glass-card">
-        <div class="section-head stops-head">
-          <div><span class="eyebrow">VOLLEDIGE LIJN</span><h2>Alle haltes</h2></div>
+      <section class="stops-panel">
+        <div class="stops-head">
+          <div>
+            <span class="eyebrow">JE RIT</span>
+            <h2>Volgende haltes</h2>
+          </div>
           <span id="stopsStatus" class="tiny-chip">Laden…</span>
         </div>
         <div id="directionTabs" class="direction-tabs"></div>
         <div id="stopsList" class="stops-list">
-          <div class="loading-row"><span class="spinner"></span><div><strong>Haltes ophalen…</strong><small>Rechtstreeks via je OVFlow-backend</small></div></div>
+          <div class="loading-row"><span class="spinner"></span><strong>Haltes ophalen…</strong></div>
         </div>
       </section>
 
-      <details class="trip-panel glass-card details-card">
-        <summary>
-          <div><span class="eyebrow">RITDETAIL</span><strong>Alle technische informatie</strong></div>
-          <span class="summary-arrow">⌄</span>
-        </summary>
-        <div class="info-grid">
-          <div><span>Lijn</span><strong id="infoLine">—</strong></div>
-          <div><span>Richting</span><strong id="infoDestination">—</strong></div>
-          <div><span>Instaphalte</span><strong id="infoStop">—</strong></div>
-          <div><span>Trip-ID</span><strong id="infoTripId" class="mono">—</strong></div>
-          <div><span>Operator</span><strong id="infoOperator">—</strong></div>
-          <div><span>Databron</span><strong>De Lijn + OVFlow</strong></div>
-        </div>
-      </details>
+      <section class="sr-data" aria-hidden="true">
+        <span id="platformValue"></span><span id="directionValue"></span><span id="vehicleAge"></span>
+        <span id="nearestStop"></span><span id="nextStop"></span><span id="coordinates"></span><span id="bearingValue"></span>
+        <span id="positionSource"></span><span id="infoLine"></span><span id="infoDestination"></span><span id="infoStop"></span>
+        <span id="infoTripId"></span><span id="infoOperator"></span><span id="lastUpdated"></span><span id="gpsDot"></span>
+        <div id="vehicleState"></div><div id="vehicleDetails" class="hidden"></div>
+      </section>
 
-      <section id="errorPanel" class="error-panel glass-card hidden">
+      <section id="errorPanel" class="error-panel hidden">
         <strong id="errorTitle">Live informatie niet volledig beschikbaar</strong>
         <p id="errorText"></p>
         <button id="retryButton" type="button">Opnieuw proberen</button>
       </section>
     </main>
-
-    <footer>
-      <span>OVFlow 4.8.1 · Exact GTFS Route</span>
-      <span id="lastUpdated">Nog niet bijgewerkt</span>
-    </footer>
   </div>
 
-  <script src="config.js?v=4.8.1"></script>
+  <script src="config.js?v=4.9.0"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="live.js?v=4.8.1"></script>
+  <script src="live.js?v=4.9.0"></script>
 </body>
 </html>

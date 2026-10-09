@@ -6,8 +6,8 @@
   const PREFIX = "ovflow-live-page:";
   const $ = id => document.getElementById(id);
   const state = {
-    payload: null, routes: [], routeIndex: 0, position: null, timer: null, loading: false,
-    map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, routeKey: "", ready: false, failed: false, followBus: false }
+    payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null, timer: null, loading: false,
+    map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false }
   };
 
   const esc = value => String(value ?? "")
@@ -287,8 +287,8 @@
 
   function stopIcon(kind = "normal") {
     if (!window.L) return null;
-    const safe = ["normal", "boarding", "current", "start", "end"].includes(kind) ? kind : "normal";
-    const size = safe === "normal" ? 10 : safe === "start" || safe === "end" ? 16 : 20;
+    const safe = ["normal", "boarding", "current", "start", "end", "passed"].includes(kind) ? kind : "normal";
+    const size = safe === "normal" || safe === "passed" ? 10 : safe === "start" || safe === "end" ? 16 : 20;
     return L.divIcon({
       className: "ov-stop-icon",
       html: `<div class="stop-marker ${safe}"></div>`,
@@ -304,6 +304,15 @@
       className: "ov-bus-icon",
       html: `<div class="bus-marker"><span style="display:block;transform:rotate(${b}deg)">↑</span></div>`,
       iconSize: [38, 38], iconAnchor: [19, 19]
+    });
+  }
+
+  function userIcon() {
+    if (!window.L) return null;
+    return L.divIcon({
+      className: "ov-user-icon",
+      html: `<div class="user-marker"></div>`,
+      iconSize: [32, 32], iconAnchor: [16, 16]
     });
   }
 
@@ -356,6 +365,95 @@
     return validStopCoords(route).map(s => [Number(s.lat), Number(s.lon)]);
   }
 
+  function activeReference() {
+    return state.position || state.userPosition || null;
+  }
+
+  function isUserFallback() {
+    return !state.position && !!state.userPosition;
+  }
+
+  function nearestPointIndex(points, lat, lon) {
+    let best = -1, dist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const d = haversine(lat, lon, points[i][0], points[i][1]);
+      if (d < dist) { dist = d; best = i; }
+    }
+    return best;
+  }
+
+  function progressModel(route) {
+    if (!route) return null;
+    const key = routeMapKey(route);
+    if (route._progressModel?.key === key) return route._progressModel;
+    let points = routeCoords(route);
+    if (points.length < 2 || !route.stops?.length) return null;
+    const first = route.stops[0], last = route.stops.at(-1);
+    const fwd = haversine(first.lat, first.lon, points[0][0], points[0][1]) + haversine(last.lat, last.lon, points.at(-1)[0], points.at(-1)[1]);
+    const rev = haversine(first.lat, first.lon, points.at(-1)[0], points.at(-1)[1]) + haversine(last.lat, last.lon, points[0][0], points[0][1]);
+    if (rev < fwd) points = [...points].reverse();
+    const cumulative = [0];
+    for (let i = 1; i < points.length; i++) cumulative[i] = cumulative[i - 1] + haversine(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]);
+    const stopDistances = route.stops.map(stop => {
+      const i = nearestPointIndex(points, stop.lat, stop.lon);
+      return i >= 0 ? cumulative[i] : null;
+    });
+    return (route._progressModel = { key, points, cumulative, stopDistances, total: cumulative.at(-1) || 1 });
+  }
+
+  function progressContext(route, reference = activeReference()) {
+    const fallbackStart = Math.max(0, boardingIndex(route));
+    if (!route?.stops?.length) return { startIndex: 0, nearestIndex: -1, pct: 0, passed: 0 };
+    if (!reference) return { startIndex: fallbackStart, nearestIndex: fallbackStart, pct: fallbackStart / Math.max(1, route.stops.length - 1) * 100, passed: fallbackStart };
+    const model = progressModel(route);
+    if (!model) {
+      const i = Math.max(0, nearestVehicleIndex(route, reference));
+      return { startIndex: i, nearestIndex: i, pct: i / Math.max(1, route.stops.length - 1) * 100, passed: i };
+    }
+    const pointIndex = nearestPointIndex(model.points, reference.lat, reference.lon);
+    const distance = pointIndex >= 0 ? model.cumulative[pointIndex] : 0;
+    let passed = 0;
+    for (let i = 0; i < model.stopDistances.length; i++) {
+      const stopDistance = model.stopDistances[i];
+      if (stopDistance !== null && distance > stopDistance + 60) passed = i + 1;
+      else break;
+    }
+    const startIndex = Math.min(Math.max(0, passed), route.stops.length - 1);
+    const nearestIndex = Math.max(startIndex, nearestVehicleIndex(route, reference));
+    return { startIndex, nearestIndex, pct: Math.max(0, Math.min(100, distance / model.total * 100)), passed };
+  }
+
+  function maxVisibleStops() {
+    if (window.innerWidth > 720) return 12;
+    if (window.innerHeight < 720) return 4;
+    if (window.innerHeight < 820) return 5;
+    return 6;
+  }
+
+  function updateUserPosition(position) {
+    const c = position?.coords;
+    if (!c || !Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return;
+    state.userPosition = { lat: c.latitude, lon: c.longitude, accuracy: c.accuracy, timestamp: new Date(position.timestamp || Date.now()).toISOString(), source: "user" };
+    if (!state.position) renderVehicle("De Lijn heeft geen voertuig-GPS; jouw locatie wordt als voortgangsreferentie gebruikt.");
+  }
+
+  function ensureUserLocation() {
+    if (state.position || state.userPosition || !navigator.geolocation) return Promise.resolve(state.userPosition);
+    if (state.geoRequest) return state.geoRequest;
+    state.geoRequest = new Promise(resolve => {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          updateUserPosition(pos);
+          if (state.geoWatchId === null) state.geoWatchId = navigator.geolocation.watchPosition(updateUserPosition, () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 12000 });
+          resolve(state.userPosition);
+        },
+        () => resolve(null),
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 6500 }
+      );
+    }).finally(() => { state.geoRequest = null; });
+    return state.geoRequest;
+  }
+
   function fitRoute() {
     const map = state.map.instance;
     const route = currentRoute();
@@ -383,53 +481,47 @@
     return mins !== null && mins > 0;
   }
 
-  function setFollowBusAvailability(available) {
+  function setFollowBusAvailability(available, userFallback = false) {
     const btn = $("followBusButton");
     if (!btn) return;
     btn.disabled = !available;
     btn.classList.toggle("disabled", !available);
-    btn.textContent = available ? "Volg voertuig" : "Wacht op GPS";
+    btn.textContent = available ? (userFallback ? "Volg mij" : "Volg voertuig") : "Wacht op locatie";
   }
 
   function updateMapSummary() {
     const route = currentRoute();
-    const pos = state.position;
-    if (!route || !pos) {
+    const ref = activeReference();
+    if (!route || !ref) {
       const mins = minutesUntilDeparture();
       const boarding = route ? boardingIndex(route) : -1;
       const startName = boarding >= 0 ? route.stops[boarding]?.name : route?.stops?.[0]?.name;
-      if (mins !== null && mins > 0) {
-        setText("mapNearestStop", "Voertuig nog niet gestart");
-        setText("mapNextStop", startName || "—");
-        setText("mapGpsAge", mins <= 1 ? "Vertrekt zo" : `Live rond vertrek · ${mins} min`);
-      } else {
-        setText("mapNearestStop", "Positie niet beschikbaar");
-        setText("mapNextStop", startName || "—");
-        setText("mapGpsAge", "Wachten op GPS");
-      }
+      setText("mapNearestStop", mins !== null && mins > 0 ? "Voertuig nog niet gestart" : "Positie niet beschikbaar");
+      setText("mapNextStop", startName || "—");
+      setText("mapGpsAge", mins !== null && mins > 0 ? (mins <= 1 ? "Vertrekt zo" : `Live rond vertrek · ${mins} min`) : "Wachten op locatie");
       setFollowBusAvailability(false);
       return;
     }
-    const i = nearestVehicleIndex(route, pos);
-    setText("mapNearestStop", i >= 0 ? route.stops[i].name : "—");
-    setText("mapNextStop", i >= 0 && i + 1 < route.stops.length ? route.stops[i + 1].name : "Eindhalte");
-    setText("mapGpsAge", ageText(pos.timestamp));
+    const ctx = progressContext(route, ref);
+    const i = ctx.startIndex;
+    setText("mapNearestStop", isUserFallback() ? `Jij · ${route.stops[i]?.name || "langs de route"}` : `Nu bij · ${route.stops[i]?.name || "—"}`);
+    setText("mapNextStop", route.stops[i]?.name || "Eindhalte");
+    setText("mapGpsAge", isUserFallback() ? "Jouw locatie" : ageText(state.position?.timestamp));
+    setFollowBusAvailability(true, isUserFallback());
   }
-
   function updateMapHighlights() {
     const route = currentRoute();
     if (!state.map.ready || !route) return;
     const boarding = boardingIndex(route);
-    const vehicle = nearestVehicleIndex(route, state.position);
+    const ctx = progressContext(route);
     state.map.stopMarkers.forEach((marker, i) => {
       if (!marker?.setIcon) return;
-      const kind = i === vehicle ? "current" : i === boarding ? "boarding" : i === 0 ? "start" : i === route.stops.length - 1 ? "end" : "normal";
+      const kind = i < ctx.startIndex ? "passed" : i === ctx.startIndex ? "current" : i === boarding ? "boarding" : i === 0 ? "start" : i === route.stops.length - 1 ? "end" : "normal";
       marker.setIcon(stopIcon(kind));
-      marker.setZIndexOffset(i === vehicle ? 500 : i === boarding ? 300 : (kind === "start" || kind === "end" ? 180 : 0));
+      marker.setZIndexOffset(i === ctx.startIndex ? 500 : i === boarding ? 300 : 0);
     });
     updateMapSummary();
   }
-
   function renderMapRoute(force = false) {
     const route = currentRoute();
     if (!route || !initMap()) return;
@@ -453,12 +545,13 @@
     }
 
     const boarding = boardingIndex(route);
+    const progress = progressContext(route);
     route.stops.forEach((stop, i) => {
       if (!Number.isFinite(Number(stop.lat)) || !Number.isFinite(Number(stop.lon))) {
         state.map.stopMarkers.push(null);
         return;
       }
-      const kind = i === boarding ? "boarding" : i === 0 ? "start" : i === route.stops.length - 1 ? "end" : "normal";
+      const kind = i < progress.startIndex ? "passed" : i === progress.startIndex ? "current" : i === boarding ? "boarding" : i === 0 ? "start" : i === route.stops.length - 1 ? "end" : "normal";
       const marker = L.marker([Number(stop.lat), Number(stop.lon)], {
         icon: stopIcon(kind),
         keyboard: false,
@@ -480,29 +573,36 @@
   function updateBusOnMap() {
     if (!state.map.ready) return;
     const map = state.map.instance;
-    const pos = state.position;
-    if (!pos || !Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lon))) {
-      if (state.map.busMarker) {
-        map.removeLayer(state.map.busMarker);
-        state.map.busMarker = null;
-      }
+    const ref = activeReference();
+    const fallback = isUserFallback();
+    if (!ref || !Number.isFinite(Number(ref.lat)) || !Number.isFinite(Number(ref.lon))) {
+      if (state.map.busMarker) { map.removeLayer(state.map.busMarker); state.map.busMarker = null; }
+      if (state.map.userMarker) { map.removeLayer(state.map.userMarker); state.map.userMarker = null; }
       updateMapSummary();
       return;
     }
-    const ll = [Number(pos.lat), Number(pos.lon)];
-    if (!state.map.busMarker) {
-      state.map.busMarker = L.marker(ll, { icon: busIcon(pos.bearing), zIndexOffset: 1000, keyboard: false }).addTo(map);
-      state.map.busMarker.bindTooltip(`Voertuig ${esc(pos.vehicleId || "live")}`, { direction: "top", className: "ov-tooltip", offset: [0, -16] });
+    const ll = [Number(ref.lat), Number(ref.lon)];
+    if (fallback) {
+      if (state.map.busMarker) { map.removeLayer(state.map.busMarker); state.map.busMarker = null; }
+      if (!state.map.userMarker) {
+        state.map.userMarker = L.marker(ll, { icon: userIcon(), zIndexOffset: 1000, keyboard: false }).addTo(map);
+        state.map.userMarker.bindTooltip("Jouw locatie · voortgangsreferentie", { direction: "top", className: "ov-tooltip", offset: [0, -14] });
+      } else state.map.userMarker.setLatLng(ll);
     } else {
-      state.map.busMarker.setLatLng(ll);
-      state.map.busMarker.setIcon(busIcon(pos.bearing));
-      state.map.busMarker.setTooltipContent(`Voertuig ${esc(pos.vehicleId || "live")} · ${esc(ageText(pos.timestamp))}`);
+      if (state.map.userMarker) { map.removeLayer(state.map.userMarker); state.map.userMarker = null; }
+      if (!state.map.busMarker) {
+        state.map.busMarker = L.marker(ll, { icon: busIcon(state.position?.bearing), zIndexOffset: 1000, keyboard: false }).addTo(map);
+        state.map.busMarker.bindTooltip(`Voertuig ${esc(state.position?.vehicleId || "live")}`, { direction: "top", className: "ov-tooltip", offset: [0, -16] });
+      } else {
+        state.map.busMarker.setLatLng(ll);
+        state.map.busMarker.setIcon(busIcon(state.position?.bearing));
+        state.map.busMarker.setTooltipContent(`Voertuig ${esc(state.position?.vehicleId || "live")} · ${esc(ageText(state.position?.timestamp))}`);
+      }
     }
-    setFollowBusAvailability(true);
+    setFollowBusAvailability(true, fallback);
     if (state.map.followBus) map.setView(ll, Math.max(15, map.getZoom()));
     updateMapHighlights();
   }
-
   function nearestVehicleIndex(route, position) {
     if (!route || !position) return -1;
     let best = -1, dist = Infinity;
@@ -539,30 +639,35 @@
       renderVehicle();
     }));
 
-    setText("stopCount", String(route.stops.length));
+    const ctx = progressContext(route);
+    const remaining = route.stops.slice(ctx.startIndex);
+    const max = maxVisibleStops();
+    const visible = remaining.slice(0, max);
+    const usingUser = isUserFallback();
+    setText("stopCount", String(remaining.length));
     setText("directionValue", route.directionName || route.directionCode || "—");
     setText("routeLabel", route.description || route.directionName || state.payload.destination || `Lijn ${state.payload.line}`);
-    setText("stopsStatus", `${route.stops.length} haltes`);
+    setText("stopsStatus", `${remaining.length} resterend${usingUser ? " · jouw locatie" : ""}`);
 
     const boarding = boardingIndex(route);
-    const vehicle = nearestVehicleIndex(route, state.position);
-    $("stopsList").innerHTML = route.stops.map((stop, i) => {
-      const cls = [i === boarding ? "boarding" : "", i === vehicle ? "current" : ""].filter(Boolean).join(" ");
-      const extra = i === vehicle ? "Voertuig hier" : i === boarding ? "Jouw halte" : stop.stopId ? `#${esc(stop.stopId)}` : "";
+    $("stopsList").innerHTML = visible.map((stop, rel) => {
+      const i = ctx.startIndex + rel;
+      const cls = [i === boarding ? "boarding" : "", i === ctx.startIndex ? "current" : ""].filter(Boolean).join(" ");
+      const extra = i === ctx.startIndex ? (usingUser ? "Jij hier" : state.position ? "Bus hier" : "Volgende") : i === boarding ? "Jouw halte" : "";
       return `<div class="stop-row ${cls}" data-stop-index="${i}">
         <div class="stop-dot">${i + 1}</div>
         <div class="stop-main"><strong>${esc(stop.name)}</strong><small>${esc(stop.direction || route.directionName || "")}</small></div>
-        <div class="stop-extra">${extra}</div>
+        ${extra ? `<div class="stop-extra">${esc(extra)}</div>` : ""}
       </div>`;
-    }).join("");
+    }).join("") + (remaining.length > visible.length ? `<div class="more-stops">+${remaining.length - visible.length} haltes daarna · allemaal zichtbaar op de kaart</div>` : "");
     renderMapRoute();
   }
-
   async function fetchVehicle() {
     const p = state.payload;
     if (!API_BASE || !p.tripId) {
       state.position = null;
-      renderVehicle("Voor dit vertrek is geen trip-ID beschikbaar. De volledige haltevolgorde blijft wel zichtbaar.");
+      renderVehicle("Voor dit vertrek is geen trip-ID beschikbaar.");
+      ensureUserLocation().catch(() => {});
       return;
     }
     try {
@@ -572,33 +677,28 @@
       const data = await getJson(url, 5500);
       state.position = data?.position && !data.position.stale ? data.position : null;
       renderVehicle(state.position ? "" : "De Lijn levert voor deze rit momenteel geen exacte voertuigpositie.");
+      if (!state.position) ensureUserLocation().catch(() => {});
     } catch (error) {
       state.position = null;
       renderVehicle(`Live GPS tijdelijk niet bereikbaar: ${error.message}`);
+      ensureUserLocation().catch(() => {});
     }
   }
-
   function renderVehicle(message = "") {
     const pos = state.position;
     const route = currentRoute();
+    const ref = activeReference();
+    const fallback = isUserFallback();
     const dot = $("gpsDot");
     const details = $("vehicleDetails");
-    if (!pos) {
+
+    if (!pos && !fallback) {
       const mins = minutesUntilDeparture();
-      const pre = mins !== null && mins > 0;
       dot.className = "gps-dot offline";
       details.classList.add("hidden");
-      if (pre) {
-        const when = mins <= 1 ? "Vertrekt zo" : `Vertrek over ${mins} min`;
-        $("vehicleState").innerHTML = `<div class="vehicle-orb waiting">◷</div><div><strong>Voertuig nog niet gestart</strong><span>${esc(when)} · live positie verschijnt zodra De Lijn GPS doorstuurt.</span></div>`;
-        setText("vehicleAge", mins <= 1 ? "Vertrekt zo" : `Nog ${mins} min`);
-        setText("positionSource", "Rit staat gepland · live GPS volgt rond vertrek");
-      } else {
-        $("vehicleState").innerHTML = `<div class="vehicle-orb">⌁</div><div><strong>Exacte positie niet beschikbaar</strong><span>${esc(message || "OVFlow probeert opnieuw bij de volgende refresh.")}</span></div>`;
-        setText("vehicleAge", "Wachten op GPS");
-        setText("positionSource", "Haltevolgorde beschikbaar · exacte GPS is optioneel");
-      }
-      setText("vehicleId", "—");
+      setText("vehicleId", "Geen GPS");
+      setText("vehicleAge", "Wachten");
+      setText("positionSource", mins !== null && mins > 0 ? "Rit staat gepland · live GPS volgt rond vertrek" : "De Lijn GPS ontbreekt · OVFlow probeert jouw locatie als fallback");
       setFollowBusAvailability(false);
       $("routeProgress").style.width = "0%";
       updateBusOnMap();
@@ -606,26 +706,31 @@
       return;
     }
 
-    dot.className = "gps-dot live";
-    details.classList.remove("hidden");
-    $("vehicleState").innerHTML = `<div class="vehicle-orb">●</div><div><strong>Voertuig live gevonden</strong><span>De Lijn GTFS Realtime · ${esc(ageText(pos.timestamp))}</span></div>`;
-    setText("vehicleId", pos.vehicleId || "Live");
-    setText("vehicleAge", ageText(pos.timestamp));
-    setText("coordinates", `${Number(pos.lat).toFixed(5)}, ${Number(pos.lon).toFixed(5)}`);
-    setText("bearingValue", bearingText(pos.bearing));
-    setText("positionSource", `Exacte GPS · bron: De Lijn GTFS Realtime · ${ageText(pos.timestamp)}`);
+    if (fallback) {
+      dot.className = "gps-dot fallback";
+      details.classList.add("hidden");
+      setText("vehicleId", "Jouw locatie");
+      setText("vehicleAge", ageText(state.userPosition?.timestamp));
+      setText("positionSource", "Geen bus-GPS · voortgang wordt geschat met jouw telefoonlocatie");
+    } else {
+      dot.className = "gps-dot live";
+      details.classList.remove("hidden");
+      setText("vehicleId", pos.vehicleId || "Live");
+      setText("vehicleAge", ageText(pos.timestamp));
+      setText("coordinates", `${Number(pos.lat).toFixed(5)}, ${Number(pos.lon).toFixed(5)}`);
+      setText("bearingValue", bearingText(pos.bearing));
+      setText("positionSource", `Exacte GPS · De Lijn GTFS Realtime · ${ageText(pos.timestamp)}`);
+    }
 
-    if (route) {
-      const i = nearestVehicleIndex(route, pos);
-      setText("nearestStop", i >= 0 ? route.stops[i].name : "—");
-      setText("nextStop", i >= 0 && i + 1 < route.stops.length ? route.stops[i + 1].name : "Eindhalte");
-      const pct = i < 0 ? 0 : Math.max(0, Math.min(100, (i / Math.max(1, route.stops.length - 1)) * 100));
-      $("routeProgress").style.width = `${pct}%`;
+    if (route && ref) {
+      const ctx = progressContext(route, ref);
+      setText("nearestStop", route.stops[ctx.startIndex]?.name || "—");
+      setText("nextStop", route.stops[ctx.startIndex]?.name || "Eindhalte");
+      $("routeProgress").style.width = `${ctx.pct}%`;
       renderRoutes();
     }
     updateBusOnMap();
   }
-
   async function refreshAll() {
     if (state.loading) return;
     state.loading = true;
@@ -653,7 +758,7 @@
     initMap();
     $("fitRouteButton")?.addEventListener("click", () => { state.map.followBus = false; fitRoute(); });
     $("followBusButton")?.addEventListener("click", () => {
-      const pos = state.position;
+      const pos = activeReference();
       if (!pos || !Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lon))) return;
       state.map.followBus = true;
       if (state.map.instance) state.map.instance.setView([Number(pos.lat), Number(pos.lon)], 15);
@@ -665,7 +770,10 @@
     const interval = Math.max(10000, Number(cfg.AUTO_REFRESH_MS || 15000));
     state.timer = setInterval(() => { if (!document.hidden) fetchVehicle().then(() => setText("lastUpdated", `Live ${timeText(new Date())}`)); }, interval);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) fetchVehicle(); });
-    window.addEventListener("pagehide", () => { if (state.timer) clearInterval(state.timer); });
+    window.addEventListener("pagehide", () => {
+      if (state.timer) clearInterval(state.timer);
+      if (state.geoWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(state.geoWatchId);
+    });
   }
 
   setup();

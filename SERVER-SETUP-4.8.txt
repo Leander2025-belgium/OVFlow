@@ -1,4 +1,4 @@
-Voor de exacte GTFS-route heeft OVFlow 4.8 ook de serverpatch nodig:
+Voor de exacte GTFS-route heeft OVFlow 4.9 ook de serverpatch nodig:
 OVFlow-4.8.0-server-GTFS-shapes.zip
 
 Na installatie gebruikt Live bij:

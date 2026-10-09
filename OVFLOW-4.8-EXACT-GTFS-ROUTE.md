@@ -1,4 +1,4 @@
-# OVFlow 4.8.1 — Exact GTFS Route
+# OVFlow 4.9.0 — Exact GTFS Route
 
 Live bij tekent nu de echte De Lijn GTFS `shape_id` in plaats van rechte lijnen tussen haltes.
 

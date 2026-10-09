@@ -1,4 +1,4 @@
-# OVFlow 4.8.1 Polish
+# OVFlow 4.9.0 Polish
 
 - Basemap vervangen door OpenStreetMap zonder API-key watermark.
 - Haltemarkers rustiger gemaakt; begin/eind en instaphalte duidelijker.

@@ -1,4 +1,4 @@
-# OVFlow 4.8.1 — Route sanity fix
+# OVFlow 4.9.0 — Route sanity fix
 
 Fix voor Live vanuit de routeplanner waarbij een stale/verkeerde tripId een GTFS-shape van een andere regio (bv. Antwerpen) kon tonen.
 
