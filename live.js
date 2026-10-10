@@ -186,6 +186,10 @@
       const url = new URL(`${API_BASE}/api/v4/delijn/line-stops`);
       url.searchParams.set("line", p.line);
       if (area) url.searchParams.set("area", area);
+      if (p.tripId) url.searchParams.set("tripId", p.tripId);
+      if (p.destination) url.searchParams.set("destination", p.destination);
+      if (Number.isFinite(Number(p.stop?.lat))) url.searchParams.set("lat", String(p.stop.lat));
+      if (Number.isFinite(Number(p.stop?.lon))) url.searchParams.set("lon", String(p.stop.lon));
       return getJson(url, 22000, 1);
     }
 
@@ -425,32 +429,61 @@
 
   function progressContext(route, reference = activeReference()) {
     const fallbackStart = Math.max(0, boardingIndex(route));
-    if (!route?.stops?.length) return { startIndex: 0, nearestIndex: -1, pct: 0, passed: 0 };
-    if (!reference) return { startIndex: fallbackStart, nearestIndex: fallbackStart, pct: fallbackStart / Math.max(1, route.stops.length - 1) * 100, passed: fallbackStart };
+    if (!route?.stops?.length) return { startIndex: 0, nearestIndex: -1, pct: 0, passed: 0, source: "none" };
+    if (!reference) return { startIndex: fallbackStart, nearestIndex: fallbackStart, pct: fallbackStart / Math.max(1, route.stops.length - 1) * 100, passed: fallbackStart, source: "boarding" };
+
+    // Prefer identifiers supplied by GTFS-Realtime. They are much safer than
+    // geometric projection on routes that cross or run close to themselves.
+    if (state.position && !isUserFallback()) {
+      const stopId = String(state.position.stopId || "").replace(/^gt:delijn:/i, "");
+      if (stopId) {
+        const idIndex = route.stops.findIndex(s => {
+          const sid = String(s.stopId || "").replace(/^gt:delijn:/i, "");
+          return sid === stopId || sid.endsWith(`:${stopId}`) || stopId.endsWith(`:${sid}`);
+        });
+        if (idIndex >= 0) {
+          const idx = Math.max(fallbackStart, idIndex);
+          route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, idx);
+          return { startIndex: route._stableStartIndex, nearestIndex: idx, pct: idx / Math.max(1, route.stops.length - 1) * 100, passed: idx, source: "stopId" };
+        }
+      }
+      const seq = Number(state.position.currentStopSequence);
+      if (Number.isFinite(seq) && seq > 0 && seq <= route.stops.length + 3) {
+        const idx = Math.max(fallbackStart, Math.min(route.stops.length - 1, Math.round(seq) - 1));
+        route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, idx);
+        return { startIndex: route._stableStartIndex, nearestIndex: idx, pct: idx / Math.max(1, route.stops.length - 1) * 100, passed: idx, source: "sequence" };
+      }
+    }
+
     const model = progressModel(route);
     if (!model) {
-      const i = Math.max(0, nearestVehicleIndex(route, reference));
-      return { startIndex: i, nearestIndex: i, pct: i / Math.max(1, route.stops.length - 1) * 100, passed: i };
+      const i = Math.max(fallbackStart, Math.max(0, nearestVehicleIndex(route, reference)));
+      route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, i);
+      return { startIndex: route._stableStartIndex, nearestIndex: i, pct: i / Math.max(1, route.stops.length - 1) * 100, passed: i, source: "nearest" };
     }
+
     const pointIndex = nearestPointIndex(model.points, reference.lat, reference.lon);
     const distance = pointIndex >= 0 ? model.cumulative[pointIndex] : 0;
-    let passed = 0;
-    for (let i = 0; i < model.stopDistances.length; i++) {
+    let candidate = fallbackStart;
+    for (let i = fallbackStart; i < model.stopDistances.length; i++) {
       const stopDistance = model.stopDistances[i];
-      if (stopDistance !== null && distance > stopDistance + 60) passed = i + 1;
+      // 90 m instead of 60 m: a stop only disappears when we are clearly past it.
+      if (stopDistance !== null && distance > stopDistance + 90) candidate = i + 1;
       else break;
     }
-    const startIndex = Math.min(Math.max(0, passed), route.stops.length - 1);
+    candidate = Math.min(Math.max(fallbackStart, candidate), route.stops.length - 1);
+
+    // Hysteresis prevents GPS jitter/self-crossings from deleting many stops in
+    // one refresh. Once a stop is gone it stays gone, but progress advances at
+    // most 3 stops per location update after the initial lock.
+    if (route._stableStartIndex == null) route._stableStartIndex = candidate;
+    else if (candidate > route._stableStartIndex) route._stableStartIndex = Math.min(candidate, route._stableStartIndex + 3);
+    const startIndex = Math.max(fallbackStart, route._stableStartIndex);
     const nearestIndex = Math.max(startIndex, nearestVehicleIndex(route, reference));
-    return { startIndex, nearestIndex, pct: Math.max(0, Math.min(100, distance / model.total * 100)), passed };
+    return { startIndex, nearestIndex, pct: Math.max(0, Math.min(100, distance / model.total * 100)), passed: startIndex, source: "shape" };
   }
 
-  function maxVisibleStops() {
-    if (window.innerWidth > 720) return 12;
-    if (window.innerHeight < 720) return 4;
-    if (window.innerHeight < 820) return 5;
-    return 6;
-  }
+  function maxVisibleStops() { return 9999; }
 
   function updateUserPosition(position) {
     const c = position?.coords;
@@ -663,8 +696,7 @@
 
     const ctx = progressContext(route);
     const remaining = route.stops.slice(ctx.startIndex);
-    const max = maxVisibleStops();
-    const visible = remaining.slice(0, max);
+    const visible = remaining;
     const usingUser = isUserFallback();
     setText("stopCount", String(remaining.length));
     setText("directionValue", route.directionName || route.directionCode || "—");
@@ -681,7 +713,7 @@
         <div class="stop-main"><strong>${esc(stop.name)}</strong><small>${esc(stop.direction || route.directionName || "")}</small></div>
         ${extra ? `<div class="stop-extra">${esc(extra)}</div>` : ""}
       </div>`;
-    }).join("") + (remaining.length > visible.length ? `<div class="more-stops">+${remaining.length - visible.length} haltes daarna · allemaal zichtbaar op de kaart</div>` : "");
+    }).join("");
     renderMapRoute();
   }
   async function fetchVehicle() {
@@ -747,7 +779,8 @@
     if (route && ref) {
       const ctx = progressContext(route, ref);
       setText("nearestStop", route.stops[ctx.startIndex]?.name || "—");
-      setText("nextStop", route.stops[ctx.startIndex]?.name || "Eindhalte");
+      const nextIdx = Math.min(route.stops.length - 1, ctx.startIndex + (state.position ? 1 : 0));
+      setText("nextStop", route.stops[nextIdx]?.name || "Eindhalte");
       $("routeProgress").style.width = `${ctx.pct}%`;
       renderRoutes();
     }
