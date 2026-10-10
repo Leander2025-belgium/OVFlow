@@ -1,4 +1,4 @@
-# OVFlow 4.9.2 — Transit Live
+# OVFlow 4.9.3 — Transit Live
 
 - Gepasseerde haltes verdwijnen automatisch uit de lijst.
 - Voortgang gebruikt de echte De Lijn GPS; zonder voertuig-GPS wordt browserlocatie gebruikt als expliciet gelabelde fallback.

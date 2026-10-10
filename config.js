@@ -1,4 +1,4 @@
-window.OVFLOW_VERSION = "4.9.2";
+window.OVFLOW_VERSION = "4.9.3";
 console.info("OVFlow frontend", window.OVFLOW_VERSION);
 window.OVFLOW_CONFIG = {
   API_BASE: "https://ovflow-api.wheaterflow.be",

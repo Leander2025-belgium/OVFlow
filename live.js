@@ -151,6 +151,58 @@
     };
   }
 
+  function destinationMatchScore(stopName, destination) {
+    const stop = norm(stopName);
+    const dest = norm(destination);
+    if (!stop || !dest) return 0;
+    if (stop === dest) return 1000;
+    if (stop.includes(dest) || dest.includes(stop)) return 700;
+    const ignored = new Set(["richting", "perron", "halte", "bus", "tram", "station"]);
+    const tokens = dest.split(" ").filter(t => t.length > 2 && !ignored.has(t));
+    if (!tokens.length) return 0;
+    const hits = tokens.filter(t => stop.includes(t)).length;
+    return hits ? (hits / tokens.length) * 500 + hits * 20 : 0;
+  }
+
+  function trimRouteToTripTerminal(route) {
+    const p = state.payload || {};
+    const destination = String(p.destination || route?.tripHeadsign || route?.directionName || "").trim();
+    if (!route?.stops?.length || !destination) return route;
+    let bestIndex = -1, bestScore = 0;
+    route.stops.forEach((stop, i) => {
+      const score = destinationMatchScore(stop.name, destination);
+      // Prefer the furthest equally-good stop in the travel direction.
+      if (score > bestScore || (score === bestScore && score > 0 && i > bestIndex)) {
+        bestScore = score; bestIndex = i;
+      }
+    });
+    if (bestIndex >= 1 && bestIndex < route.stops.length - 1 && bestScore >= 280) {
+      route.stops = route.stops.slice(0, bestIndex + 1);
+      route.tripTerminalLocked = true;
+      route.tripTerminalName = route.stops.at(-1)?.name || destination;
+    }
+    return route;
+  }
+
+  function cropShapeToRoute(points, route) {
+    if (!Array.isArray(points) || points.length < 2 || !route?.stops?.length) return points || [];
+    const first = route.stops[0], last = route.stops.at(-1);
+    if (![first?.lat, first?.lon, last?.lat, last?.lon].every(v => Number.isFinite(Number(v)))) return points;
+    const nearestIdx = stop => {
+      let best = 0, dist = Infinity;
+      // Sampling every point is fine for the typical 1-3k point De Lijn shapes.
+      points.forEach((pt, i) => {
+        const d = haversine(stop.lat, stop.lon, pt[0], pt[1]);
+        if (d < dist) { dist = d; best = i; }
+      });
+      return { index: best, dist };
+    };
+    const a = nearestIdx(first), b = nearestIdx(last);
+    if (a.dist > 900 || b.dist > 900) return points;
+    if (a.index <= b.index) return points.slice(a.index, b.index + 1);
+    return points.slice(b.index, a.index + 1).reverse();
+  }
+
   function scoreRoute(route) {
     const p = state.payload;
     const stops = route.stops || [];
@@ -200,13 +252,21 @@
       else throw firstError;
     }
 
-    const routes = (Array.isArray(data?.routes) ? data.routes : []).map(route => ({
+    const routes = (Array.isArray(data?.routes) ? data.routes : []).map(route => trimRouteToTripTerminal({
       ...route,
       stops: (Array.isArray(route.stops) ? route.stops : []).map(compactApiStop).filter(s => s.name)
     })).filter(r => r.stops.length >= 2);
     if (!routes.length) throw new Error("Geen haltevolgorde gevonden voor deze lijn.");
-    state.routes = routes;
-    state.routeIndex = routes.map(scoreRoute).reduce((best, score, i, arr) => score > arr[best] ? i : best, 0);
+    const bestIndex = routes.map(scoreRoute).reduce((best, score, i, arr) => score > arr[best] ? i : best, 0);
+    // A concrete departure is one trip, not a route picker. Keep alternate
+    // same-number lines/directions out of the Live screen.
+    if (p.tripId || p.destination) {
+      state.routes = [routes[bestIndex]];
+      state.routeIndex = 0;
+    } else {
+      state.routes = routes;
+      state.routeIndex = bestIndex;
+    }
     renderRoutes();
     fetchExactShape().catch(() => {});
   }
@@ -299,6 +359,7 @@
         throw new Error(`Verkeerde GTFS-lijn ontvangen (${data?.line})`);
       }
 
+      points = cropShapeToRoute(points, route);
       route.exactShapePoints = points;
       route.shapeMeta = data;
       setShapeChip(data.exactTripMatch ? `Exacte rit · ${points.length} ptn` : `GTFS-route · ${points.length} ptn`, "ready");
@@ -686,7 +747,8 @@
     const tabs = $("directionTabs");
     const route = currentRoute();
     if (!route) return;
-    tabs.innerHTML = state.routes.map((r, i) => `<button type="button" class="direction-tab ${i === state.routeIndex ? "active" : ""}" data-route-index="${i}">${esc(r.directionName || r.directionCode || `Richting ${i+1}`)}</button>`).join("");
+    tabs.innerHTML = state.routes.length > 1 ? state.routes.map((r, i) => `<button type="button" class="direction-tab ${i === state.routeIndex ? "active" : ""}" data-route-index="${i}">${esc(r.directionName || r.directionCode || `Richting ${i+1}`)}</button>`).join("") : "";
+    tabs.classList.toggle("hidden", state.routes.length <= 1);
     tabs.querySelectorAll("[data-route-index]").forEach(btn => btn.addEventListener("click", () => {
       state.routeIndex = Number(btn.dataset.routeIndex);
       renderRoutes();
