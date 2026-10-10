@@ -9,6 +9,7 @@
     payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null,
     vehicleTimer: null, infoTimer: null, loading: false,
     tripTimes: { byStopId: new Map(), bySequence: new Map(), source: "", updatedAt: null },
+    fallbackTimesLoading: false,
     map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false, stopsVisible: true, userPauseUntil: 0, _segmentFitted: false }
   };
 
@@ -111,6 +112,55 @@
     } catch (error) {
       console.warn("OVFlow Live: ritvertrektijden niet beschikbaar", error);
       return null;
+    }
+  }
+
+
+  async function fetchFallbackStopTimes() {
+    if (!API_BASE || state.fallbackTimesLoading) return null;
+    const route = currentRoute();
+    if (!route?.stops?.length || !state.payload?.line) return null;
+    const ctx = progressContext(route, activeReference());
+    const upcoming = route.stops.slice(ctx.startIndex, ctx.startIndex + 8)
+      .filter(stop => /^\d{1,3}$/.test(String(stop.entiteit || "")) && /^\d{1,8}$/.test(String(stop.stopId || "")));
+    if (!upcoming.length) return null;
+
+    // If exact GTFS-RT already supplies most visible times, do not fan out to Core.
+    const known = upcoming.filter((stop, rel) => tripInfoForStop(stop, ctx.startIndex + rel + 1)?.time || stop.plannedTime).length;
+    if (known >= Math.min(5, upcoming.length)) return null;
+
+    state.fallbackTimesLoading = true;
+    try {
+      const url = new URL(`${API_BASE}/api/v5/delijn/live-stop-times`);
+      url.searchParams.set("line", state.payload.line);
+      if (state.payload.destination) url.searchParams.set("destination", state.payload.destination);
+      url.searchParams.set("stops", upcoming.map(s => `${s.entiteit}:${s.stopId}`).join(","));
+      const anchor = state.payload.realtimeDeparture || state.payload.plannedDeparture || new Date().toISOString();
+      url.searchParams.set("anchor", anchor);
+      const data = await getJson(url, 15000, 1);
+      const byId = state.tripTimes.byStopId || new Map();
+      (Array.isArray(data?.times) ? data.times : []).forEach(item => {
+        if (!item?.stopId || !item?.time) return;
+        const sid = String(item.stopId).replace(/^gt:delijn:/i, "");
+        // Exact GTFS-RT always wins. Core fallback only fills missing stop times.
+        if (byId.get(sid)?.time) return;
+        byId.set(sid, {
+          time: item.time,
+          plannedTime: item.plannedTime || null,
+          delay: Number(item.delaySeconds || 0) || 0,
+          realtime: Boolean(item.realtime),
+          fallback: true
+        });
+      });
+      state.tripTimes.byStopId = byId;
+      if (!state.tripTimes.source && data?.count) state.tripTimes.source = data.source || "delijn-core-live-stop-times";
+      state.tripTimes.updatedAt = data?.updatedAt || state.tripTimes.updatedAt;
+      return data;
+    } catch (error) {
+      console.warn("OVFlow Live: Core-haltetijden fallback niet beschikbaar", error);
+      return null;
+    } finally {
+      state.fallbackTimesLoading = false;
     }
   }
 
@@ -231,6 +281,7 @@
       index: Number(stop?.index || index + 1),
       name: String(stop?.name || stop?.omschrijvingLang || stop?.omschrijving || `Halte ${index + 1}`),
       stopId: String(stop?.haltenummer || stop?.stopId || ""),
+      entiteit: String(stop?.entiteit || stop?.entiteitnummer || stop?.entity || ""),
       lat: num(stop?.latitude ?? stop?.lat),
       lon: num(stop?.longitude ?? stop?.lon),
       direction: String(stop?.richting || ""),
@@ -949,7 +1000,7 @@
       const exactTripTime = tripInfo?.time || null;
       const clockSource = exactTripTime || stop.plannedTime || preloadTime || (i === ctx.startIndex || i === boarding ? (state.payload.realtimeDeparture || state.payload.plannedDeparture) : null);
       const clock = clockSource ? timeText(clockSource) : "";
-      const timeLabel = clock && clock !== "—" ? clock : "—";
+      const timeLabel = clock && clock !== "—" ? clock : "···";
       const delaySec = Number(tripInfo?.delay || 0);
       const delayMin = Math.round(delaySec / 60);
       const delayLabel = tripInfo && delayMin !== 0 ? `${delayMin > 0 ? "+" : ""}${delayMin} min` : "";
@@ -1061,6 +1112,7 @@
     if (document.hidden) return;
     try {
       await fetchTripTimes();
+      await fetchFallbackStopTimes();
       if (currentRoute()) { renderRoutes(); updateJourneyCard(); }
     } catch (error) {
       console.warn("OVFlow live halte-informatie refresh mislukt", error);
@@ -1099,6 +1151,7 @@
       // Vehicle GPS must never block the route/stop UI. fetchVehicle handles its
       // own errors and can fall back to the phone location.
       await Promise.all([fetchVehicle(), fetchTripTimes()]);
+      await fetchFallbackStopTimes();
       if (currentRoute()) { renderRoutes(); updateJourneyCard(); }
 
       if (routeError && !state.routes.length) {
