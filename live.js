@@ -6,7 +6,7 @@
   const PREFIX = "ovflow-live-page:";
   const $ = id => document.getElementById(id);
   const state = {
-    payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null, timer: null, loading: false,
+    payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null, timer: null, loading: false, tripTimes: { byStopId: new Map(), bySequence: new Map(), source: "" },
     map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false, stopsVisible: true }
   };
 
@@ -48,6 +48,60 @@
   function timeText(value) {
     const d = parseDate(value);
     return d ? new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(d) : "—";
+  }
+
+  function canonicalTripId(value) {
+    return String(value || "").trim().replace(/^gt:delijn:/i, "").replace(/^delijn:/i, "");
+  }
+
+  function epochOrDate(value) {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "number" || /^\d{9,13}$/.test(String(value))) {
+      let n = Number(value);
+      if (!Number.isFinite(n)) return null;
+      if (n < 1e12) n *= 1000;
+      const d = new Date(n);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    return parseDate(value);
+  }
+
+  function tripTimeForStop(stop, sequence) {
+    const sid = String(stop?.stopId || "").replace(/^gt:delijn:/i, "");
+    const byId = sid ? state.tripTimes.byStopId.get(sid) || state.tripTimes.byStopId.get(`gt:delijn:${sid}`) : null;
+    const bySeq = state.tripTimes.bySequence.get(Number(sequence));
+    return byId || bySeq || null;
+  }
+
+  async function fetchTripTimes() {
+    const p = state.payload || {};
+    if (!API_BASE || !p.tripId) return null;
+    try {
+      const url = new URL(`${API_BASE}/api/gtfs/delijn/trip-updates`);
+      url.searchParams.set("tripId", p.tripId);
+      const data = await getJson(url, 12000, 1);
+      const wanted = canonicalTripId(p.tripId);
+      const updates = Array.isArray(data?.tripUpdates) ? data.tripUpdates : [];
+      const update = updates.find(item => canonicalTripId(item?.tripId) === wanted) || updates[0];
+      if (!update) return null;
+      const byStopId = new Map(), bySequence = new Map();
+      (update.stops || []).forEach(st => {
+        const raw = st.departureTime ?? st.arrivalTime;
+        const d = epochOrDate(raw);
+        if (!d) return;
+        const iso = d.toISOString();
+        const sid = String(st.stopId || "").replace(/^gt:delijn:/i, "");
+        if (sid) byStopId.set(sid, iso);
+        const seq = Number(st.stopSequence);
+        if (Number.isFinite(seq)) bySequence.set(seq, iso);
+      });
+      state.tripTimes = { byStopId, bySequence, source: data?.source || "gtfs-rt-trip-update" };
+      if (currentRoute()) renderRoutes();
+      return update;
+    } catch (error) {
+      console.warn("OVFlow Live: ritvertrektijden niet beschikbaar", error);
+      return null;
+    }
   }
 
   function ageText(value) {
@@ -576,6 +630,23 @@
     return state.geoRequest;
   }
 
+  function fitLiveSegment() {
+    const map = state.map.instance;
+    const route = currentRoute();
+    const ref = activeReference();
+    if (!map || !route || !window.L) return fitRoute();
+    const ctx = progressContext(route, ref);
+    const end = Math.min(route.stops.length - 1, ctx.startIndex + 7);
+    const pts = [];
+    if (ref && Number.isFinite(Number(ref.lat)) && Number.isFinite(Number(ref.lon))) pts.push([Number(ref.lat), Number(ref.lon)]);
+    for (let i = ctx.startIndex; i <= end; i++) {
+      const st = route.stops[i];
+      if (Number.isFinite(Number(st?.lat)) && Number.isFinite(Number(st?.lon))) pts.push([Number(st.lat), Number(st.lon)]);
+    }
+    if (pts.length >= 2) map.fitBounds(L.latLngBounds(pts), { paddingTopLeft:[34,64], paddingBottomRight:[34,38], maxZoom:15 });
+    else fitRoute();
+  }
+
   function fitRoute() {
     const map = state.map.instance;
     const route = currentRoute();
@@ -662,8 +733,10 @@
 
     const coords = routeCoords(route);
     if (coords.length >= 2) {
-      state.map.routeLine = L.polyline(coords, { color: "#147be4", weight: 6, opacity: .86, lineJoin: "round", lineCap: "round", smoothFactor: 1 }).addTo(state.map.routeLayer);
-      L.polyline(coords, { color: "#ffffff", weight: 2, opacity: .9, lineJoin: "round", lineCap: "round" }).addTo(state.map.routeLayer);
+      // Premium route rendering: white casing first, then the crisp blue route.
+      L.polyline(coords, { color: "#ffffff", weight: 10, opacity: .96, lineJoin: "round", lineCap: "round", smoothFactor: .8 }).addTo(state.map.routeLayer);
+      state.map.routeLine = L.polyline(coords, { color: "#087ff5", weight: 6, opacity: .96, lineJoin: "round", lineCap: "round", smoothFactor: .8 }).addTo(state.map.routeLayer);
+      L.polyline(coords, { color: "#65b8ff", weight: 2, opacity: .55, lineJoin: "round", lineCap: "round", smoothFactor: .8 }).addTo(state.map.routeLayer);
     }
 
     const boarding = boardingIndex(route);
@@ -782,7 +855,8 @@
         return norm(ps?.name || ps?.omschrijvingLang || ps?.omschrijving || "") === norm(stop.name);
       });
       const preloadTime = preload?.plannedTime || preload?.departureTime || preload?.arrivalTime || preload?.doorkomsttijd || preload?.time || null;
-      const clockSource = stop.plannedTime || preloadTime || (i === ctx.startIndex || i === boarding ? (state.payload.realtimeDeparture || state.payload.plannedDeparture) : null);
+      const exactTripTime = tripTimeForStop(stop, i + 1);
+      const clockSource = exactTripTime || stop.plannedTime || preloadTime || (i === ctx.startIndex || i === boarding ? (state.payload.realtimeDeparture || state.payload.plannedDeparture) : null);
       const clock = clockSource ? timeText(clockSource) : "";
       // Live 3.0: never replace missing times with internal stop numbers (#40 etc.).
       // If De Lijn/GTFS does not provide a time for a stop, show an em dash instead.
@@ -866,6 +940,10 @@
       renderRoutes();
     }
     updateBusOnMap();
+    if (route && ref && !state.map.followBus && !state.map._segmentFitted) {
+      state.map._segmentFitted = true;
+      setTimeout(fitLiveSegment, 80);
+    }
   }
   function scheduleRouteRecovery() {
     if (state.routes.length || state._routeRecoveryTimer) return;
@@ -914,6 +992,7 @@
       // Vehicle GPS must never block the route/stop UI. fetchVehicle handles its
       // own errors and can fall back to the phone location.
       await fetchVehicle();
+      fetchTripTimes().catch(() => {});
 
       if (routeError && !state.routes.length) {
         showError("Haltes laden iets trager", "OVFlow blijft automatisch proberen. Kaart en jouw locatie blijven ondertussen bruikbaar.");
