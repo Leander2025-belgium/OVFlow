@@ -3,26 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
-  <meta name="theme-color" content="#f5f8fb">
+  <meta name="theme-color" content="#f5f9ff">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Live · OVFlow</title>
+  <title>Live 2.0 · OVFlow</title>
   <link rel="icon" href="ovflow-icon-192.png">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="live.css?v=4.9.3">
+  <link rel="stylesheet" href="live.css?v=live2.0.0">
 </head>
 <body>
   <div class="live-shell">
     <header class="live-topbar">
-      <button id="backButton" class="icon-button" type="button" aria-label="Terug">‹</button>
-      <div class="brand-lockup">
-        <span class="brand-dot">O</span>
-        <div><strong>Live</strong><small>OVFlow 4.9.3</small></div>
+      <button id="backButton" class="icon-button" type="button" aria-label="Terug">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5 7.5 12l7 7"/></svg>
+      </button>
+
+      <div class="brand-lockup" aria-label="OVFlow Live 2.0">
+        <strong>Live</strong>
+        <small>OVFlow 2.0</small>
       </div>
-      <button id="refreshButton" class="icon-button refresh-button" type="button" aria-label="Vernieuwen">↻</button>
+
+      <button id="refreshButton" class="icon-button refresh-button" type="button" aria-label="Vernieuwen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M18.3 15a7 7 0 1 1-.8-7.8L20 10"/></svg>
+      </button>
     </header>
 
     <main class="live-dashboard">
@@ -34,46 +40,86 @@
           <p id="routeLabel">Lijninformatie ophalen…</p>
         </div>
         <div class="hero-chips">
-          <span id="realtimeChip" class="status-chip">Verbinden…</span>
-          <span id="operatorChip" class="status-chip subtle">De Lijn</span>
+          <span id="realtimeChip" class="status-chip realtime-chip">Verbinden…</span>
+          <span id="operatorChip" class="status-chip operator-chip">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V7.8C6 5.7 7.7 4 9.8 4h4.4C16.3 4 18 5.7 18 7.8V16"/><path d="M6 11h12M8 18h.01M16 18h.01M7 20h10"/></svg>
+            <span>Operator</span>
+          </span>
         </div>
       </section>
 
       <section class="map-card" aria-label="Live routekaart">
         <div class="map-toolbar">
-          <span id="shapeChip" class="tiny-chip shape-chip">GTFS-route laden…</span>
+          <span id="shapeChip" class="tiny-chip shape-chip">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3Z"/><path d="M8 3v15M16 6v15"/></svg>
+            <span class="shape-chip-label">GTFS-route laden…</span>
+          </span>
           <div class="map-actions">
-            <button id="fitRouteButton" class="mini-button" type="button">Route</button>
-            <button id="followBusButton" class="mini-button primary" type="button">Volg</button>
+            <button id="fitRouteButton" class="mini-button" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3Z"/><path d="M8 3v15M16 6v15"/></svg>
+              <span>Route</span>
+            </button>
+            <button id="followBusButton" class="mini-button primary" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 1 9 9M12 7a5 5 0 0 1 5 5M12 11a1 1 0 1 1-1 1"/><path d="M3 12a9 9 0 0 0 9 9M7 12a5 5 0 0 0 5 5"/></svg>
+              <span>Volg voertuig</span>
+            </button>
           </div>
         </div>
+
         <div class="map-wrap">
           <div id="liveMap" class="live-map"></div>
           <div id="mapLoading" class="map-loading"><span class="spinner"></span><strong>Kaart laden…</strong></div>
           <div id="mapUnavailable" class="map-unavailable hidden"><strong>Kaart niet beschikbaar</strong></div>
-          <div class="map-legend"><span><i class="legend-line"></i> Route</span><span><i class="legend-stop"></i> Haltes</span><span><i class="legend-bus"></i> Voertuig</span><span><i class="legend-user"></i> Jij</span></div>
+          <div class="map-legend">
+            <span><i class="legend-line"></i>Route</span>
+            <span><i class="legend-stop"></i>Haltes</span>
+            <span><i class="legend-bus"></i>Voertuig</span>
+            <span><i class="legend-user"></i>Jij</span>
+          </div>
         </div>
       </section>
 
       <section class="journey-card">
         <div class="journey-main">
-          <div class="journey-next">
-            <span class="label">VOLGENDE HALTE</span>
-            <strong id="mapNextStop">—</strong>
-            <small id="mapNearestStop">Positie bepalen…</small>
+          <div class="journey-next-wrap">
+            <div class="journey-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 16V7.8C6 5.7 7.7 4 9.8 4h4.4C16.3 4 18 5.7 18 7.8V16"/><path d="M6 11h12M8 18h.01M16 18h.01M7 20h10"/></svg>
+            </div>
+            <div class="journey-next">
+              <span class="label">VOLGENDE HALTE</span>
+              <strong id="mapNextStop">—</strong>
+              <small id="mapNearestStop">Positie bepalen…</small>
+            </div>
           </div>
           <div class="journey-time">
-            <span class="label">VERTREK</span>
+            <span class="label">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>
+              VERTREK
+            </span>
             <strong id="departureTime">—</strong>
             <small id="departureMeta">—</small>
           </div>
         </div>
-        <div class="progress-track"><span id="routeProgress"></span></div>
+
+        <div class="progress-track" aria-hidden="true"><span id="routeProgress"></span></div>
+
         <div class="quick-facts">
-          <div><span>Vertraging</span><strong id="delayValue">—</strong></div>
-          <div><span>Voertuig</span><strong id="vehicleId">—</strong></div>
-          <div><span>GPS</span><strong id="mapGpsAge">—</strong></div>
-          <div><span>Haltes over</span><strong id="stopCount">—</strong></div>
+          <div>
+            <span>Vertraging</span>
+            <strong id="delayValue">—</strong>
+          </div>
+          <div>
+            <span>Voertuig</span>
+            <strong id="vehicleId">—</strong>
+          </div>
+          <div>
+            <span>GPS</span>
+            <strong id="mapGpsAge">—</strong>
+          </div>
+          <div>
+            <span>Haltes over</span>
+            <strong id="stopCount">—</strong>
+          </div>
         </div>
       </section>
 
@@ -83,7 +129,7 @@
             <span class="eyebrow">JE RIT</span>
             <h2>Volgende haltes</h2>
           </div>
-          <span id="stopsStatus" class="tiny-chip">Laden…</span>
+          <span id="stopsStatus" class="tiny-chip stops-status">Laden…</span>
         </div>
         <div id="directionTabs" class="direction-tabs"></div>
         <div id="stopsList" class="stops-list">
@@ -107,8 +153,8 @@
     </main>
   </div>
 
-  <script src="config.js?v=4.9.3"></script>
+  <script src="config.js?v=live2.0.0"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="live.js?v=4.9.3"></script>
+  <script src="live.js?v=live2.0.0"></script>
 </body>
 </html>

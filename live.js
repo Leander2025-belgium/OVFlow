@@ -124,7 +124,10 @@
     setText("destinationLabel", p.destination ? `Richting ${p.destination}` : `Lijn ${p.line || "—"}`);
     setText("routeLabel", p.stop?.name ? `Vanaf ${p.stop.name}` : "Live ritinformatie");
     setText("modeLabel", `${p.mode || "OV"} · LIVE BIJ`);
-    setText("operatorChip", p.operator || "De Lijn / OVFlow");
+    const operatorChip = $("operatorChip");
+    const operatorLabel = operatorChip?.querySelector("span");
+    if (operatorLabel) operatorLabel.textContent = p.operator || "De Lijn";
+    else setText("operatorChip", p.operator || "De Lijn");
     setText("departureTime", timeText(p.realtimeDeparture || p.plannedDeparture));
     const dep = new Date(p.realtimeDeparture || p.plannedDeparture || 0);
     const mins = Number.isFinite(dep.getTime()) ? Math.round((dep.getTime() - Date.now()) / 60000) : null;
@@ -276,7 +279,9 @@
   function setShapeChip(text, stateName = "") {
     const chip = $("shapeChip");
     if (!chip) return;
-    chip.textContent = text;
+    const label = chip.querySelector(".shape-chip-label");
+    if (label) label.textContent = text;
+    else chip.textContent = text;
     chip.className = `tiny-chip shape-chip ${stateName}`.trim();
   }
 
