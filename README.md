@@ -54,3 +54,6 @@ Live bij heeft nu een licht thema en een live routekaart met haltes en voertuigp
 
 ## OVFlow 4.9.3
 Exacte De Lijn GTFS shapes op de Live bij-kaart. Zie `OVFLOW-4.8-EXACT-GTFS-ROUTE.md`.
+
+## Live 2.0.1 Mockup Match
+De Live-pagina is opnieuw afgestemd op het goedgekeurde Live 2.0-concept. Zie `LIVE-2.0.1.md`. De definitieve logo-assets worden later toegevoegd.

@@ -7,12 +7,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Live 2.0 · OVFlow</title>
+  <title>Live 2.0.1 · OVFlow</title>
   <link rel="icon" href="ovflow-icon-192.png">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="live.css?v=live2.0.0">
+  <link rel="stylesheet" href="live.css?v=live2.0.1">
 </head>
 <body>
   <div class="live-shell">
@@ -26,9 +26,14 @@
         <small>OVFlow 2.0</small>
       </div>
 
-      <button id="refreshButton" class="icon-button refresh-button" type="button" aria-label="Vernieuwen">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M18.3 15a7 7 0 1 1-.8-7.8L20 10"/></svg>
-      </button>
+      <div class="top-actions">
+        <button id="alertsButton" class="icon-button compact-action" type="button" aria-label="Meldingen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+        </button>
+        <button id="refreshButton" class="icon-button compact-action refresh-button" type="button" aria-label="Vernieuwen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M18.3 15a7 7 0 1 1-.8-7.8L20 10"/></svg>
+        </button>
+      </div>
     </header>
 
     <main class="live-dashboard">
@@ -39,6 +44,9 @@
           <h1 id="destinationLabel">Rit laden…</h1>
           <p id="routeLabel">Lijninformatie ophalen…</p>
         </div>
+        <button id="favoriteButton" class="favorite-button" type="button" aria-label="Rit bewaren">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg>
+        </button>
         <div class="hero-chips">
           <span id="realtimeChip" class="status-chip realtime-chip">Verbinden…</span>
           <span id="operatorChip" class="status-chip operator-chip">
@@ -70,6 +78,17 @@
           <div id="liveMap" class="live-map"></div>
           <div id="mapLoading" class="map-loading"><span class="spinner"></span><strong>Kaart laden…</strong></div>
           <div id="mapUnavailable" class="map-unavailable hidden"><strong>Kaart niet beschikbaar</strong></div>
+          <div class="map-side-actions" aria-label="Kaartopties">
+            <button id="centerMapButton" type="button" aria-label="Centreer live positie">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m19 5-7.2 14-1.8-6-6-1.8Z"/></svg>
+            </button>
+            <button id="toggleStopsButton" type="button" aria-label="Toon of verberg haltes">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4-8 4-8-4 8-4Z"/><path d="m4 12 8 4 8-4M4 17l8 4 8-4"/></svg>
+            </button>
+            <button id="fullscreenMapButton" type="button" aria-label="Kaart volledig scherm">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+            </button>
+          </div>
           <div class="map-legend">
             <span><i class="legend-line"></i>Route</span>
             <span><i class="legend-stop"></i>Haltes</span>
@@ -126,8 +145,7 @@
       <section class="stops-panel">
         <div class="stops-head">
           <div>
-            <span class="eyebrow">JE RIT</span>
-            <h2>Volgende haltes</h2>
+            <h2>Je rit</h2>
           </div>
           <span id="stopsStatus" class="tiny-chip stops-status">Laden…</span>
         </div>
@@ -153,8 +171,8 @@
     </main>
   </div>
 
-  <script src="config.js?v=live2.0.0"></script>
+  <script src="config.js?v=live2.0.1"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="live.js?v=live2.0.0"></script>
+  <script src="live.js?v=live2.0.1"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const state = {
     payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null, timer: null, loading: false,
-    map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false }
+    map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false, stopsVisible: true }
   };
 
   const esc = value => String(value ?? "")
@@ -140,7 +140,7 @@
     setText("infoStop", p.stop?.name || "—");
     setText("infoTripId", p.tripId || "Niet beschikbaar");
     setText("infoOperator", p.operator || "De Lijn / OVFlow");
-    setText("realtimeChip", p.cancelled ? "Geannuleerd" : p.realtime ? "● Realtime" : "Dienstregeling");
+    setText("realtimeChip", p.cancelled ? "Geannuleerd" : p.realtime ? "Realtime" : "Dienstregeling");
   }
 
   function compactApiStop(stop, index) {
@@ -150,7 +150,8 @@
       stopId: String(stop?.haltenummer || stop?.stopId || ""),
       lat: num(stop?.latitude ?? stop?.lat),
       lon: num(stop?.longitude ?? stop?.lon),
-      direction: String(stop?.richting || "")
+      direction: String(stop?.richting || ""),
+      plannedTime: stop?.plannedTime || stop?.departureTime || stop?.arrivalTime || stop?.doorkomsttijd || stop?.time || null
     };
   }
 
@@ -768,17 +769,21 @@
     setText("stopCount", String(remaining.length));
     setText("directionValue", route.directionName || route.directionCode || "—");
     setText("routeLabel", route.description || route.directionName || state.payload.destination || `Lijn ${state.payload.line}`);
-    setText("stopsStatus", `${remaining.length} resterend${usingUser ? " · jouw locatie" : ""}`);
+    setText("stopsStatus", `${remaining.length} resterende halte${remaining.length === 1 ? "" : "s"}${usingUser ? " · jouw locatie" : ""}`);
 
     const boarding = boardingIndex(route);
     $("stopsList").innerHTML = visible.map((stop, rel) => {
       const i = ctx.startIndex + rel;
-      const cls = [i === boarding ? "boarding" : "", i === ctx.startIndex ? "current" : ""].filter(Boolean).join(" ");
-      const extra = i === ctx.startIndex ? (usingUser ? "Jij hier" : state.position ? "Bus hier" : "Volgende") : i === boarding ? "Jouw halte" : "";
+      const cls = [i === boarding ? "boarding" : "", i === ctx.startIndex ? "current" : "", i === route.stops.length - 1 ? "terminal" : ""].filter(Boolean).join(" ");
+      const extra = i === boarding && i !== ctx.startIndex ? "Instappen" : "";
+      const clock = stop.plannedTime ? timeText(stop.plannedTime) : (i === boarding ? timeText(state.payload.realtimeDeparture || state.payload.plannedDeparture) : "");
+      const timeLabel = clock && clock !== "—" ? clock : (i === ctx.startIndex ? "Nu" : `#${i + 1}`);
+      const subtitle = i === route.stops.length - 1 ? "Eindhalte" : "";
       return `<div class="stop-row ${cls}" data-stop-index="${i}">
-        <div class="stop-dot">${i + 1}</div>
-        <div class="stop-main"><strong>${esc(stop.name)}</strong><small>${esc(stop.direction || route.directionName || "")}</small></div>
-        ${extra ? `<div class="stop-extra">${esc(extra)}</div>` : ""}
+        <div class="stop-time">${esc(timeLabel)}${i === ctx.startIndex && clock && clock !== "—" ? `<small>Nu</small>` : ""}</div>
+        <div class="stop-track"><div class="stop-dot"></div></div>
+        <div class="stop-main"><strong>${esc(stop.name)}</strong>${subtitle ? `<small>${esc(subtitle)}</small>` : ""}</div>
+        <div class="stop-end">${extra ? `<span class="stop-extra">${esc(extra)}</span>` : ""}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></div>
       </div>`;
     }).join("");
     renderMapRoute();
@@ -872,7 +877,7 @@
     if (state.loading) return;
     state.loading = true;
     clearError();
-    $("refreshButton").textContent = "…";
+    $("refreshButton")?.classList.add("is-loading");
     let routeError = null;
     try {
       if (!state.routes.length) {
@@ -910,7 +915,7 @@
       showError("Een onderdeel is tijdelijk niet bereikbaar", "De live-pagina blijft werken en probeert automatisch opnieuw.");
     } finally {
       state.loading = false;
-      $("refreshButton").textContent = "↻";
+      $("refreshButton")?.classList.remove("is-loading");
     }
   }
 
@@ -925,6 +930,37 @@
       state.map.followBus = true;
       if (state.map.instance) state.map.instance.setView([Number(pos.lat), Number(pos.lon)], 15);
     });
+    $("centerMapButton")?.addEventListener("click", () => {
+      const pos = activeReference();
+      if (pos && state.map.instance) state.map.instance.setView([Number(pos.lat), Number(pos.lon)], Math.max(15, state.map.instance.getZoom()));
+      else fitRoute();
+    });
+    $("toggleStopsButton")?.addEventListener("click", event => {
+      state.map.stopsVisible = !state.map.stopsVisible;
+      const group = state.map.routeLayer;
+      if (group) state.map.stopMarkers.forEach(marker => {
+        if (!marker) return;
+        if (state.map.stopsVisible) group.addLayer(marker); else group.removeLayer(marker);
+      });
+      event.currentTarget.classList.toggle("active", state.map.stopsVisible);
+    });
+    $("fullscreenMapButton")?.addEventListener("click", async () => {
+      const card = document.querySelector(".map-card");
+      try {
+        if (!document.fullscreenElement) await card?.requestFullscreen?.();
+        else await document.exitFullscreen?.();
+      } catch {}
+      setTimeout(() => state.map.instance?.invalidateSize(), 120);
+    });
+    const fav = $("favoriteButton");
+    if (fav) {
+      const favKey = `ovflow:fav-live:${state.payload.line || ""}:${state.payload.destination || ""}`;
+      try { fav.classList.toggle("active", localStorage.getItem(favKey) === "1"); } catch {}
+      fav.addEventListener("click", () => {
+        fav.classList.toggle("active");
+        try { localStorage.setItem(favKey, fav.classList.contains("active") ? "1" : "0"); } catch {}
+      });
+    }
     $("backButton").addEventListener("click", () => history.length > 1 ? history.back() : location.assign("index.html"));
     $("refreshButton").addEventListener("click", refreshAll);
     $("retryButton").addEventListener("click", refreshAll);
