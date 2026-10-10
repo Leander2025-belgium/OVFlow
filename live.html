@@ -7,12 +7,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Live 4.0 · OVFlow</title>
+  <title>Live · OVFlow 5.0</title>
   <link rel="icon" href="ovflow-icon-192.png">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="live.css?v=live4.0">
+  <link rel="stylesheet" href="live.css?v=live5.0">
 </head>
 <body>
   <div class="live-shell">
@@ -21,14 +21,15 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5 7.5 12l7 7"/></svg>
       </button>
 
-      <div class="brand-lockup" aria-label="OVFlow Live 4.0">
+      <div class="brand-lockup" aria-label="OVFlow Live 5.0">
         <strong>Live</strong>
-        <small>OVFlow 4.0</small>
+        <small>OVFlow 5.0</small>
       </div>
 
       <div class="top-actions">
-        <button id="alertsButton" class="icon-button compact-action" type="button" aria-label="Meldingen">
+        <button id="alertsButton" class="icon-button compact-action notification-button" type="button" aria-label="Meldingen">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+          <span id="notificationDot" class="notification-dot hidden" aria-hidden="true"></span>
         </button>
         <button id="refreshButton" class="icon-button compact-action refresh-button" type="button" aria-label="Vernieuwen">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M18.3 15a7 7 0 1 1-.8-7.8L20 10"/></svg>
@@ -58,10 +59,10 @@
 
       <section class="map-card" aria-label="Live routekaart">
         <div class="map-toolbar">
-          <span id="shapeChip" class="tiny-chip shape-chip">
+          <button id="routeStopsButton" class="tiny-chip shape-chip" type="button" aria-label="Toon route via komende haltes">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3Z"/><path d="M8 3v15M16 6v15"/></svg>
-            <span class="shape-chip-label">GTFS-route laden…</span>
-          </span>
+            <span class="shape-chip-label">Route via haltes</span>
+          </button>
           <div class="map-actions">
             <button id="fitRouteButton" class="mini-button" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3Z"/><path d="M8 3v15M16 6v15"/></svg>
@@ -98,7 +99,7 @@
         </div>
       </section>
 
-      <section class="journey-card">
+      <section class="journey-card" aria-live="polite">
         <div class="journey-main">
           <div class="journey-next-wrap">
             <div class="journey-icon" aria-hidden="true">
@@ -123,7 +124,7 @@
         <div class="progress-track" aria-hidden="true"><span id="routeProgress"></span></div>
 
         <div class="quick-facts">
-          <div>
+          <div id="delayFact" class="fact-delay">
             <span>Vertraging</span>
             <strong id="delayValue">—</strong>
           </div>
@@ -131,9 +132,10 @@
             <span>Voertuig</span>
             <strong id="vehicleId">—</strong>
           </div>
-          <div>
+          <div id="gpsFact" class="fact-gps">
             <span>GPS</span>
             <strong id="mapGpsAge">—</strong>
+            <small id="gpsClock"></small>
           </div>
           <div>
             <span>Haltes over</span>
@@ -171,8 +173,8 @@
     </main>
   </div>
 
-  <script src="config.js?v=live4.0"></script>
+  <script src="config.js?v=live5.0"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="live.js?v=live4.0"></script>
+  <script src="live.js?v=live5.0"></script>
 </body>
 </html>
