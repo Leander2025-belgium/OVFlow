@@ -361,3 +361,85 @@ svg{display:block;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:
 .live-topbar{position:relative}
 .brand-lockup{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1}
 .live-topbar>.icon-button,.top-actions{position:relative;z-index:2}
+
+
+/* ============================================================
+   OVFlow Live 3.0 — approved mockup match
+   Compact map + denser journey timeline, >=5 stops on iPhone.
+   ============================================================ */
+:root{--live3-gap:7px}
+
+@media(max-width:560px){
+  .live-shell{
+    padding-left:10px;padding-right:10px;
+    grid-template-rows:54px minmax(0,1fr);
+    gap:var(--live3-gap);
+  }
+  .live-dashboard{
+    grid-template-rows:auto clamp(188px,22dvh,232px) auto minmax(0,1fr);
+    gap:var(--live3-gap);
+  }
+
+  /* Slightly tighter hero so the route list gets the screen space. */
+  .route-hero{
+    grid-template-columns:62px minmax(0,1fr) 36px;
+    padding:10px 11px;
+    column-gap:10px;row-gap:5px;
+    border-radius:24px;
+  }
+  .line-badge{width:62px;height:62px;border-radius:19px;font-size:23px}
+  .route-copy .eyebrow{font-size:8.5px;letter-spacing:.18em}
+  .route-copy h1{font-size:19.5px;line-height:1.02;margin:2px 0 4px}
+  .route-copy p{font-size:10.8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .favorite-button{width:34px;height:34px}.favorite-button svg{width:17px;height:17px}
+  .hero-chips{gap:6px}.status-chip{min-height:26px;padding:4px 8px;font-size:9px}
+
+  /* The key 3.0 change: a shorter map, same controls and clarity. */
+  .map-card{padding:7px;border-radius:24px;min-height:0}
+  .map-wrap,.live-map{border-radius:19px}
+  .map-toolbar{top:11px;left:11px;right:11px}
+  .shape-chip{height:32px;max-width:48%;font-size:8.7px;padding:5px 8px;border-radius:12px}
+  .mini-button{height:32px;font-size:9px;padding:0 9px;border-radius:12px}
+  .mini-button.primary{padding-inline:10px}
+  .map-side-actions{right:8px;top:52px;gap:5px}
+  .map-side-actions button{width:33px;height:33px;border-radius:11px}
+  .map-side-actions button svg{width:15px;height:15px}
+  .map-legend{left:9px;bottom:7px;padding:5px 7px;gap:6px;font-size:7.6px;border-radius:12px}
+
+  /* Compact summary card without losing any information. */
+  .journey-card{border-radius:24px;padding:9px 10px 9px}
+  .journey-main{grid-template-columns:minmax(0,1fr) 101px;gap:8px}
+  .journey-icon{width:38px;height:38px;border-radius:12px}.journey-icon svg{width:19px;height:19px}
+  .journey-next-wrap{gap:8px}.journey-next .label,.journey-time .label{font-size:7.8px}
+  .journey-next strong{font-size:15.6px;line-height:1.08}.journey-next small{font-size:8.8px}
+  .journey-time{padding-left:7px}.journey-time strong{font-size:23px}.journey-time small{font-size:8.3px}
+  .progress-track{height:3px;margin:5px 0 6px}
+  .quick-facts{gap:4px}.quick-facts>div{padding:5px 6px;border-radius:11px;min-width:0}
+  .quick-facts span{font-size:7.5px}.quick-facts strong{font-size:9.8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* Full-height internal stop list. Page remains fixed; timeline scrolls. */
+  .stops-panel{
+    margin-left:-10px;margin-right:-10px;
+    border-radius:24px 24px 0 0;
+    padding:8px 11px max(6px,env(safe-area-inset-bottom));
+  }
+  .stops-head{margin-bottom:3px}.stops-head h2{font-size:20px}.stops-status{font-size:8.5px;padding:5px 9px;max-width:64%}
+  .direction-tabs{margin-bottom:2px}
+  .stops-list{padding-bottom:5px}
+  .stop-row{grid-template-columns:44px 23px minmax(0,1fr) 15px;gap:6px;min-height:40px}
+  .stop-time{font-size:10px;padding-top:7px}.stop-time small{font-size:7.6px;margin-top:2px}
+  .stop-track{padding-top:7px}.stop-track:after{top:21px;bottom:-10px}
+  .stop-dot{width:14px;height:14px;border-width:3px}.stop-row.current .stop-dot{width:16px;height:16px}
+  .stop-main{padding:7px 0 8px}.stop-main strong{font-size:11.4px;line-height:1.08}.stop-main small{font-size:7.7px;margin-top:2px}
+  .stop-end{padding:4px 1px 4px 0}.stop-end svg{width:13px;height:13px}
+  .stop-extra{font-size:7px;padding:3px 5px}
+}
+
+@media(max-height:760px) and (max-width:560px){
+  .live-dashboard{grid-template-rows:auto clamp(172px,20.5dvh,205px) auto minmax(0,1fr)}
+  .route-hero{padding-top:8px;padding-bottom:8px}.line-badge{width:56px;height:56px}.route-hero{grid-template-columns:56px minmax(0,1fr) 32px}
+  .route-copy h1{font-size:17.8px}.route-copy p{font-size:9.8px}.status-chip{min-height:24px}
+  .journey-card{padding-top:7px;padding-bottom:7px}.journey-next strong{font-size:14.5px}.journey-time strong{font-size:21px}
+  .quick-facts>div{padding-top:4px;padding-bottom:4px}
+  .stop-row{min-height:37px}.stop-main{padding-top:6px;padding-bottom:7px}
+}

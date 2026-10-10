@@ -57,3 +57,7 @@ Exacte De Lijn GTFS shapes op de Live bij-kaart. Zie `OVFLOW-4.8-EXACT-GTFS-ROUT
 
 ## Live 2.0.1 Mockup Match
 De Live-pagina is opnieuw afgestemd op het goedgekeurde Live 2.0-concept. Zie `LIVE-2.0.1.md`. De definitieve logo-assets worden later toegevoegd.
+
+
+## Live 3.0
+De Live-pagina is afgestemd op het goedgekeurde Live 3.0-concept. Zie `LIVE-3.0.md`. De bestaande OVFlow 4.9.3 backend blijft compatibel.

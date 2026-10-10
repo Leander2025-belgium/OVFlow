@@ -776,8 +776,17 @@
       const i = ctx.startIndex + rel;
       const cls = [i === boarding ? "boarding" : "", i === ctx.startIndex ? "current" : "", i === route.stops.length - 1 ? "terminal" : ""].filter(Boolean).join(" ");
       const extra = i === boarding && i !== ctx.startIndex ? "Instappen" : "";
-      const clock = stop.plannedTime ? timeText(stop.plannedTime) : (i === boarding ? timeText(state.payload.realtimeDeparture || state.payload.plannedDeparture) : "");
-      const timeLabel = clock && clock !== "—" ? clock : (i === ctx.startIndex ? "Nu" : `#${i + 1}`);
+      const preload = (state.payload.preloadedStops || []).find(ps => {
+        const pid = String(ps?.stopId || ps?.haltenummer || "");
+        if (pid && stop.stopId && pid === String(stop.stopId)) return true;
+        return norm(ps?.name || ps?.omschrijvingLang || ps?.omschrijving || "") === norm(stop.name);
+      });
+      const preloadTime = preload?.plannedTime || preload?.departureTime || preload?.arrivalTime || preload?.doorkomsttijd || preload?.time || null;
+      const clockSource = stop.plannedTime || preloadTime || (i === ctx.startIndex || i === boarding ? (state.payload.realtimeDeparture || state.payload.plannedDeparture) : null);
+      const clock = clockSource ? timeText(clockSource) : "";
+      // Live 3.0: never replace missing times with internal stop numbers (#40 etc.).
+      // If De Lijn/GTFS does not provide a time for a stop, show an em dash instead.
+      const timeLabel = clock && clock !== "—" ? clock : "—";
       const subtitle = i === route.stops.length - 1 ? "Eindhalte" : "";
       return `<div class="stop-row ${cls}" data-stop-index="${i}">
         <div class="stop-time">${esc(timeLabel)}${i === ctx.startIndex && clock && clock !== "—" ? `<small>Nu</small>` : ""}</div>
