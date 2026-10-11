@@ -774,3 +774,38 @@ body:before{
   .journey-card{height:102px;min-height:102px}.journey-icon{display:none}.journey-next strong{font-size:13px}.quick-facts>div{padding:4px}.quick-facts strong{font-size:8px}
   .stop-row{height:36px;min-height:36px!important}.stop-main{padding:4px 0}.stop-track{padding-top:5px}.stop-time{padding-top:5px}.stop-track:after{top:17px}
 }
+
+
+/* ==========================================================
+   OVFlow Live 5.2 — timeline-first viewport budget
+   5 full stops is the hard floor; normal iPhones target 7–9.
+   ========================================================== */
+@media (max-width:720px){
+  .live-shell{grid-template-rows:44px minmax(0,1fr);gap:5px;padding-top:calc(env(safe-area-inset-top) + 3px)}
+  .live-topbar{height:44px}
+  .live-dashboard{grid-template-rows:74px 150px 104px minmax(0,1fr)!important;gap:5px!important}
+  .route-hero{height:74px;min-height:74px;padding:6px 9px;grid-template-columns:50px minmax(0,1fr) 32px;column-gap:8px}
+  .line-badge{width:50px;height:50px;border-radius:15px;font-size:20px}
+  .route-copy h1{font-size:16px}.route-copy p{font-size:9.8px}.eyebrow{font-size:7.5px}
+  .favorite-button{width:30px;height:30px}
+  .status-chip{min-height:20px;padding:2px 6px;font-size:7.9px}
+  .map-card{height:150px;min-height:150px;padding:4px;border-radius:20px}
+  .map-toolbar{top:7px;left:7px;right:7px}.shape-chip,.mini-button{height:27px;font-size:7.5px}
+  .map-side-actions{top:40px}.map-side-actions button{width:28px;height:28px}
+  .map-legend{bottom:4px;font-size:6.6px;padding:4px 6px}
+  .journey-card{height:104px;min-height:104px;padding:7px 8px;border-radius:20px}
+  .journey-main{grid-template-columns:minmax(0,1fr) 90px;gap:6px}
+  .journey-icon{width:31px;height:31px}.journey-next strong{font-size:13.5px}.journey-time strong{font-size:19px}
+  .journey-next small,.journey-time small{font-size:7.5px}
+  .progress-track{margin:5px 0;height:3px}.quick-facts>div{padding:4px 4px;min-height:34px}.quick-facts span{font-size:6.3px}.quick-facts strong{font-size:8.2px}
+  .stops-panel{padding:7px 8px max(4px,env(safe-area-inset-bottom));border-radius:20px 20px 0 0}
+  .stops-head{height:25px;min-height:25px;margin-bottom:2px}.stops-head h2{font-size:16px}.stops-status{min-height:21px;font-size:7.3px;padding:2px 6px}
+  .stop-row{height:46px;min-height:46px!important;grid-template-columns:44px 22px minmax(0,1fr) 15px;gap:5px;padding:0 2px}
+  .stop-time{font-size:9.6px;padding-top:6px}.stop-time small{font-size:6.8px;line-height:1.05}
+  .stop-main{padding:5px 0}.stop-main strong{font-size:10.7px}.stop-main small{font-size:6.8px}
+}
+@media (max-width:720px) and (max-height:759px){
+  .live-dashboard{grid-template-rows:68px 132px 96px minmax(0,1fr)!important}
+  .route-hero{height:68px;min-height:68px}.map-card{height:132px;min-height:132px}.journey-card{height:96px;min-height:96px}
+  .stop-row{height:43px;min-height:43px!important}
+}

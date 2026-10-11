@@ -1,5 +1,6 @@
 (() => {
   "use strict";
+  // OVFlow Live 5.2 — exact GTFS stop_times + coherent realtime timeline.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -8,7 +9,8 @@
   const state = {
     payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null,
     vehicleTimer: null, infoTimer: null, loading: false,
-    tripTimes: { byStopId: new Map(), bySequence: new Map(), source: "", updatedAt: null },
+    tripTimes: { byStopId: new Map(), bySequence: new Map(), source: "", updatedAt: null, generalDelaySeconds: 0 },
+    scheduleTimes: { byStopId: new Map(), bySequence: new Map(), source: "", matchedTripId: "", count: 0, loadedFor: "" },
     fallbackTimesLoading: false,
     map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false, stopsVisible: true, userPauseUntil: 0, _segmentFitted: false }
   };
@@ -80,6 +82,92 @@
     return tripInfoForStop(stop, sequence)?.time || null;
   }
 
+  function canonicalStopId(value) {
+    return String(value || "").trim().replace(/^gt:delijn:/i, "").replace(/^delijn:/i, "");
+  }
+
+  function scheduleInfoForStop(stop, sequence) {
+    const sid = canonicalStopId(stop?.stopId);
+    return (sid ? state.scheduleTimes.byStopId.get(sid) : null) || state.scheduleTimes.bySequence.get(Number(sequence)) || null;
+  }
+
+  function addSeconds(value, seconds) {
+    const d = epochOrDate(value);
+    if (!d) return null;
+    return new Date(d.getTime() + Number(seconds || 0) * 1000).toISOString();
+  }
+
+  function currentDelaySeconds(stop, sequence) {
+    const exact = tripInfoForStop(stop, sequence);
+    if (exact && !exact.fallback && Number.isFinite(Number(exact.delay))) return Number(exact.delay);
+    if (Number.isFinite(Number(state.tripTimes.generalDelaySeconds))) return Number(state.tripTimes.generalDelaySeconds);
+    return Math.round(Number(state.payload?.delayMinutes || 0) * 60);
+  }
+
+  // One authoritative resolver for both the large next-stop card and every row
+  // in Je rit. Priority: exact GTFS-RT -> GTFS static + current delay -> GTFS
+  // static -> De Lijn Core fallback -> preloaded/planner time -> unavailable.
+  function bestTimeInfoForStop(stop, sequence, preloadTime = null) {
+    const rt = tripInfoForStop(stop, sequence);
+    const sched = scheduleInfoForStop(stop, sequence);
+    const planned = sched?.time || sched?.scheduledDeparture || stop?.plannedTime || preloadTime || null;
+    const delay = currentDelaySeconds(stop, sequence);
+
+    if (rt?.time && !rt.fallback) {
+      return { time: rt.time, plannedTime: planned, delay: Number(rt.delay || 0), realtime: true, estimated: false, source: "gtfs-rt" };
+    }
+    if (planned) {
+      if (delay) return { time: addSeconds(planned, delay), plannedTime: planned, delay, realtime: true, estimated: true, source: "gtfs-static+delay" };
+      return { time: planned, plannedTime: planned, delay: 0, realtime: false, estimated: false, source: "gtfs-static" };
+    }
+    if (rt?.time) {
+      return { time: rt.time, plannedTime: rt.plannedTime || null, delay: Number(rt.delay || 0), realtime: Boolean(rt.realtime), estimated: false, source: "delijn-core" };
+    }
+    const payloadFallback = sequence === 1 ? (state.payload?.realtimeDeparture || state.payload?.plannedDeparture) : null;
+    if (payloadFallback) return { time: payloadFallback, plannedTime: state.payload?.plannedDeparture || null, delay, realtime: Boolean(state.payload?.realtime), estimated: false, source: "payload" };
+    return { time: null, plannedTime: null, delay: 0, realtime: false, estimated: false, source: "none" };
+  }
+
+  async function fetchTripSchedule(force = false) {
+    const p = state.payload || {};
+    if (!API_BASE || !p.tripId) return null;
+    const wanted = canonicalTripId(p.tripId);
+    if (!force && state.scheduleTimes.loadedFor === wanted && state.scheduleTimes.count > 0) return state.scheduleTimes;
+    try {
+      const url = new URL(`${API_BASE}/api/v5/delijn/trip-stop-times`);
+      url.searchParams.set("tripId", p.tripId);
+      url.searchParams.set("anchor", p.realtimeDeparture || p.plannedDeparture || new Date().toISOString());
+      const data = await getJson(url, 12000, 1);
+      const byStopId = new Map(), bySequence = new Map();
+      (Array.isArray(data?.stops) ? data.stops : []).forEach(st => {
+        const time = st.scheduledDeparture || st.scheduledArrival || null;
+        if (!time) return;
+        const info = {
+          time, scheduledDeparture: st.scheduledDeparture || null, scheduledArrival: st.scheduledArrival || null,
+          stopSequence: Number(st.stopSequence), stopName: st.stopName || "", source: "gtfs-static"
+        };
+        const sid = canonicalStopId(st.stopId);
+        if (sid) byStopId.set(sid, info);
+        if (Number.isFinite(info.stopSequence)) bySequence.set(info.stopSequence, info);
+      });
+      state.scheduleTimes = {
+        byStopId, bySequence, source: data?.source || "delijn-gtfs-static-stop-times",
+        matchedTripId: data?.matchedGtfsTripId || "", count: Number(data?.stopTimesCount || bySequence.size), loadedFor: wanted
+      };
+      console.info("OVFlow GTFS stop_times", {
+        realtimeTripId: p.tripId, normalizedTripId: canonicalTripId(p.tripId),
+        matchedGtfsTripId: state.scheduleTimes.matchedTripId, stopTimes: state.scheduleTimes.count
+      });
+      if (currentRoute()) renderRoutes();
+      return data;
+    } catch (error) {
+      console.warn("OVFlow Live: GTFS stop_times niet beschikbaar", {
+        realtimeTripId: p.tripId, normalizedTripId: canonicalTripId(p.tripId), error: error.message
+      });
+      return null;
+    }
+  }
+
   async function fetchTripTimes() {
     const p = state.payload || {};
     if (!API_BASE || !p.tripId) return null;
@@ -106,7 +194,7 @@
         const seq = Number(st.stopSequence);
         if (Number.isFinite(seq)) bySequence.set(seq, info);
       });
-      state.tripTimes = { byStopId, bySequence, source: data?.source || "gtfs-rt-trip-update", updatedAt: data?.updatedAt || new Date().toISOString() };
+      state.tripTimes = { byStopId, bySequence, source: data?.source || "gtfs-rt-trip-update", updatedAt: data?.updatedAt || new Date().toISOString(), generalDelaySeconds: Number(update.delay || 0) || 0 };
       if (currentRoute()) renderRoutes();
       return update;
     } catch (error) {
@@ -126,7 +214,7 @@
     if (!upcoming.length) return null;
 
     // If exact GTFS-RT already supplies most visible times, do not fan out to Core.
-    const known = upcoming.filter((stop, rel) => tripInfoForStop(stop, ctx.startIndex + rel + 1)?.time || stop.plannedTime).length;
+    const known = upcoming.filter((stop, rel) => tripInfoForStop(stop, ctx.startIndex + rel + 1)?.time || scheduleInfoForStop(stop, ctx.startIndex + rel + 1)?.time || stop.plannedTime).length;
     if (known >= Math.min(5, upcoming.length)) return null;
 
     state.fallbackTimesLoading = true;
@@ -285,7 +373,8 @@
       lat: num(stop?.latitude ?? stop?.lat),
       lon: num(stop?.longitude ?? stop?.lon),
       direction: String(stop?.richting || ""),
-      plannedTime: stop?.plannedTime || stop?.departureTime || stop?.arrivalTime || stop?.doorkomsttijd || stop?.time || null
+      plannedTime: stop?.plannedTime || stop?.departureTime || stop?.arrivalTime || stop?.doorkomsttijd || stop?.time || null,
+      stopSequence: Number(stop?.stopSequence ?? stop?.stop_sequence ?? stop?.sequence ?? stop?.index ?? index + 1)
     };
   }
 
@@ -633,10 +722,28 @@
     return (route._progressModel = { key, points, cumulative, stopDistances, total: cumulative.at(-1) || 1 });
   }
 
+  function timetableProgressIndex(route) {
+    if (!route?.stops?.length) return -1;
+    const start = Math.max(0, boardingIndex(route));
+    const now = Date.now();
+    for (let i = start; i < route.stops.length; i++) {
+      const info = bestTimeInfoForStop(route.stops[i], i + 1);
+      const d = epochOrDate(info.time);
+      // Keep the stop current around its departure moment, then advance.
+      if (d && d.getTime() >= now - 20_000) return i;
+    }
+    return route.stops.length - 1;
+  }
+
   function progressContext(route, reference = activeReference()) {
     const fallbackStart = Math.max(0, boardingIndex(route));
     if (!route?.stops?.length) return { startIndex: 0, nearestIndex: -1, pct: 0, passed: 0, source: "none" };
-    if (!reference) return { startIndex: fallbackStart, nearestIndex: fallbackStart, pct: fallbackStart / Math.max(1, route.stops.length - 1) * 100, passed: fallbackStart, source: "boarding" };
+    if (!reference) {
+      const timed = timetableProgressIndex(route);
+      const idx = Math.max(fallbackStart, timed >= 0 ? timed : fallbackStart);
+      route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, idx);
+      return { startIndex: route._stableStartIndex, nearestIndex: idx, pct: idx / Math.max(1, route.stops.length - 1) * 100, passed: idx, source: timed >= 0 ? "timetable" : "boarding" };
+    }
 
     // Prefer identifiers supplied by GTFS-Realtime. They are much safer than
     // geometric projection on routes that cross or run close to themselves.
@@ -673,11 +780,17 @@
     let candidate = fallbackStart;
     for (let i = fallbackStart; i < model.stopDistances.length; i++) {
       const stopDistance = model.stopDistances[i];
-      // 90 m instead of 60 m: a stop only disappears when we are clearly past it.
-      if (stopDistance !== null && distance > stopDistance + 90) candidate = i + 1;
+      // Advance once the vehicle is clearly past the stop. 45 m is enough to
+      // avoid a sticky current stop while still filtering normal GPS jitter.
+      if (stopDistance !== null && distance > stopDistance + 45) candidate = i + 1;
       else break;
     }
     candidate = Math.min(Math.max(fallbackStart, candidate), route.stops.length - 1);
+
+    // Schedule/realtime time may safely help one stop forward when geometry is
+    // sitting on the just-passed stop. It may never jump several stops ahead of GPS.
+    const timedIndex = timetableProgressIndex(route);
+    if (timedIndex > candidate && timedIndex <= candidate + 1) candidate = timedIndex;
 
     // Hysteresis prevents GPS jitter/self-crossings from deleting many stops in
     // one refresh. Once a stop is gone it stays gone, but progress advances at
@@ -817,22 +930,18 @@
       ? (isUserFallback() ? `Jij · ${stop?.name || "langs de route"}` : `Nu bij · ${stop?.name || "—"}`)
       : "GPS tijdelijk niet beschikbaar");
 
-    const tripInfo = tripInfoForStop(stop, i + 1);
-    const planned = stop?.plannedTime || null;
-    const fallbackTime = i === boardingIndex(route) ? (state.payload.realtimeDeparture || state.payload.plannedDeparture) : null;
-    const departure = tripInfo?.time || planned || fallbackTime;
+    const timeInfo = bestTimeInfoForStop(stop, i + 1);
+    const departure = timeInfo.time;
     setText("departureTime", departure ? timeText(departure) : "—");
     if (departure) {
       const d = epochOrDate(departure);
-      const mins = d ? Math.max(0, Math.round((d.getTime() - Date.now()) / 60000)) : null;
-      const prefix = tripInfo?.realtime ? "Realtime" : "Gepland";
+      const mins = d ? Math.round((d.getTime() - Date.now()) / 60000) : null;
+      const prefix = timeInfo.estimated ? "Geschat realtime" : timeInfo.realtime ? "Realtime" : "Gepland";
       setText("departureMeta", mins !== null ? `${prefix} · ${mins <= 0 ? "nu" : `over ${mins} min`}` : prefix);
     } else {
-      setText("departureMeta", "Vertrektijd niet beschikbaar");
+      setText("departureMeta", "Geen vertrektijd beschikbaar");
     }
-
-    if (tripInfo && Number.isFinite(Number(tripInfo.delay))) setDelayDisplay(tripInfo.delay, true);
-    else setDelayDisplay(Number(state.payload?.delayMinutes || 0));
+    setDelayDisplay(Number(timeInfo.delay || 0), true);
 
     const progress = segmentProgress(route, ctx, ref);
     const bar = $("routeProgress");
@@ -996,18 +1105,16 @@
         return norm(ps?.name || ps?.omschrijvingLang || ps?.omschrijving || "") === norm(stop.name);
       });
       const preloadTime = preload?.plannedTime || preload?.departureTime || preload?.arrivalTime || preload?.doorkomsttijd || preload?.time || null;
-      const tripInfo = tripInfoForStop(stop, i + 1);
-      const exactTripTime = tripInfo?.time || null;
-      const clockSource = exactTripTime || stop.plannedTime || preloadTime || (i === ctx.startIndex || i === boarding ? (state.payload.realtimeDeparture || state.payload.plannedDeparture) : null);
-      const clock = clockSource ? timeText(clockSource) : "";
-      const timeLabel = clock && clock !== "—" ? clock : "···";
-      const delaySec = Number(tripInfo?.delay || 0);
+      const timeInfo = bestTimeInfoForStop(stop, i + 1, preloadTime);
+      const clock = timeInfo.time ? timeText(timeInfo.time) : "—";
+      const timeLabel = clock && clock !== "—" ? clock : "—";
+      const delaySec = Number(timeInfo.delay || 0);
       const delayMin = Math.round(delaySec / 60);
-      const delayLabel = tripInfo && delayMin !== 0 ? `${delayMin > 0 ? "+" : ""}${delayMin} min` : "";
+      const delayLabel = delayMin !== 0 ? `${delayMin > 0 ? "+" : ""}${delayMin} min${timeInfo.estimated ? " · geschat" : ""}` : "";
       const isCurrent = i === ctx.startIndex;
       const subtitle = i === route.stops.length - 1 ? "Eindhalte" : (isCurrent ? "Huidige halte" : "");
       return `<div class="stop-row ${cls}" data-stop-index="${i}">
-        <div class="stop-time">${esc(timeLabel)}${isCurrent ? `<small>Nu</small>` : (delayLabel ? `<small class="delay-mini ${delayMin > 0 ? "late" : "early"}">${esc(delayLabel)}</small>` : "")}</div>
+        <div class="stop-time">${esc(timeLabel)}${isCurrent ? `<small>Nu${delayLabel ? ` · ${esc(delayLabel)}` : ""}</small>` : (delayLabel ? `<small class="delay-mini ${delayMin > 0 ? "late" : "early"}">${esc(delayLabel)}</small>` : "")}</div>
         <div class="stop-track"><div class="stop-dot"></div></div>
         <div class="stop-main"><strong>${esc(stop.name)}</strong>${subtitle ? `<small class="${isCurrent ? "current-label" : ""}">${esc(subtitle)}</small>` : ""}</div>
         <div class="stop-end">${extra ? `<span class="stop-extra">${esc(extra)}</span>` : ""}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></div>
@@ -1111,7 +1218,7 @@
   async function refreshInfo() {
     if (document.hidden) return;
     try {
-      await fetchTripTimes();
+      await Promise.all([fetchTripTimes(), fetchTripSchedule()]);
       await fetchFallbackStopTimes();
       if (currentRoute()) { renderRoutes(); updateJourneyCard(); }
     } catch (error) {
@@ -1150,7 +1257,7 @@
 
       // Vehicle GPS must never block the route/stop UI. fetchVehicle handles its
       // own errors and can fall back to the phone location.
-      await Promise.all([fetchVehicle(), fetchTripTimes()]);
+      await Promise.all([fetchVehicle(), fetchTripTimes(), fetchTripSchedule()]);
       await fetchFallbackStopTimes();
       if (currentRoute()) { renderRoutes(); updateJourneyCard(); }
 
