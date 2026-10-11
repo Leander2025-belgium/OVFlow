@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // OVFlow Live 5.2.1 — GTFS stop_times aligned to the selected departure + coherent realtime timeline.
+  // OVFlow Live 5.3 — authoritative run resolver: GTFS-RT > De Lijn Core run > aligned GTFS static.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -102,12 +102,25 @@
     const p = state.payload || {};
     if (!route?.stops?.length || !state.scheduleTimes?.count) return 0;
 
-    const idx = boardingIndex(route);
-    if (idx < 0 || idx >= route.stops.length) return 0;
-    const raw = rawScheduleInfoForStop(route.stops[idx], idx + 1);
+    // Use the stop the user/vehicle is actually at whenever possible. A generic
+    // line click can otherwise carry a valid GTFS trip pattern for a *later run*
+    // (e.g. 16:38) while the selected departure is the 14:38 run.
+    const ref = activeReference();
+    let idx = boardingIndex(route);
+    if (ref) {
+      try {
+        const ctx = progressContext(route, ref);
+        if (Number.isFinite(Number(ctx?.startIndex))) idx = Number(ctx.startIndex);
+      } catch {}
+    }
+    if (idx < 0 || idx >= route.stops.length) idx = 0;
+
+    const stop = route.stops[idx];
+    const raw = rawScheduleInfoForStop(stop, idx + 1);
     const scheduled = epochOrDate(raw?.time || raw?.scheduledDeparture || raw?.scheduledArrival);
     if (!scheduled) return 0;
 
+    // 1) A departure explicitly selected in OVFlow is authoritative.
     let anchor = epochOrDate(p.plannedDeparture);
     if (!anchor) {
       const realtime = epochOrDate(p.realtimeDeparture);
@@ -116,6 +129,20 @@
         anchor = new Date(realtime.getTime() - delaySeconds * 1000);
       }
     }
+
+    // 2) If the opening payload did not preserve a departure time, use De Lijn
+    // Core for THIS line/destination/current stop. The Core resolver locks on the
+    // same ritnummer/vrtnum across following stops, so this is a safe run anchor.
+    if (!anchor) {
+      const core = tripInfoForStop(stop, idx + 1);
+      if (core?.fallback && core?.time) {
+        const coreEffective = epochOrDate(core.time);
+        const corePlanned = epochOrDate(core.plannedTime);
+        if (corePlanned) anchor = corePlanned;
+        else if (coreEffective) anchor = new Date(coreEffective.getTime() - Number(core.delay || 0) * 1000);
+      }
+    }
+
     if (!anchor) return 0;
 
     let diff = Math.round((anchor.getTime() - scheduled.getTime()) / 1000);
@@ -169,12 +196,14 @@
     if (rt?.time && !rt.fallback) {
       return { time: rt.time, plannedTime: planned, delay: Number(rt.delay || 0), realtime: true, estimated: false, source: "gtfs-rt" };
     }
+    // De Lijn Core is the best fallback for identifying the *active run* when
+    // GTFS-RT has no TripUpdate. Prefer it over an uncalibrated static slot.
+    if (rt?.time && rt.fallback) {
+      return { time: rt.time, plannedTime: rt.plannedTime || planned || null, delay: Number(rt.delay || 0), realtime: Boolean(rt.realtime), estimated: false, source: "delijn-core" };
+    }
     if (planned) {
       if (delay) return { time: addSeconds(planned, delay), plannedTime: planned, delay, realtime: true, estimated: true, source: "gtfs-static+delay" };
       return { time: planned, plannedTime: planned, delay: 0, realtime: false, estimated: false, source: "gtfs-static" };
-    }
-    if (rt?.time) {
-      return { time: rt.time, plannedTime: rt.plannedTime || null, delay: Number(rt.delay || 0), realtime: Boolean(rt.realtime), estimated: false, source: "delijn-core" };
     }
     const payloadFallback = sequence === 1 ? (state.payload?.realtimeDeparture || state.payload?.plannedDeparture) : null;
     if (payloadFallback) return { time: payloadFallback, plannedTime: state.payload?.plannedDeparture || null, delay, realtime: Boolean(state.payload?.realtime), estimated: false, source: "payload" };
@@ -267,9 +296,14 @@
       .filter(stop => /^\d{1,3}$/.test(String(stop.entiteit || "")) && /^\d{1,8}$/.test(String(stop.stopId || "")));
     if (!upcoming.length) return null;
 
-    // If exact GTFS-RT already supplies most visible times, do not fan out to Core.
-    const known = upcoming.filter((stop, rel) => tripInfoForStop(stop, ctx.startIndex + rel + 1)?.time || scheduleInfoForStop(stop, ctx.startIndex + rel + 1)?.time || stop.plannedTime).length;
-    if (known >= Math.min(5, upcoming.length)) return null;
+    // Only exact GTFS-RT may suppress the Core resolver. Static GTFS alone is
+    // not enough: it can represent the correct stop pattern but the wrong run
+    // slot. Core is deliberately fetched as a run/time anchor when RT is sparse.
+    const exactRealtimeKnown = upcoming.filter((stop, rel) => {
+      const info = tripInfoForStop(stop, ctx.startIndex + rel + 1);
+      return Boolean(info?.time && !info?.fallback);
+    }).length;
+    if (exactRealtimeKnown >= Math.min(5, upcoming.length)) return null;
 
     state.fallbackTimesLoading = true;
     try {
@@ -297,6 +331,23 @@
       state.tripTimes.byStopId = byId;
       if (!state.tripTimes.source && data?.count) state.tripTimes.source = data.source || "delijn-core-live-stop-times";
       state.tripTimes.updatedAt = data?.updatedAt || state.tripTimes.updatedAt;
+      if (data?.count) {
+        const current = currentRoute();
+        const currentCtx = current ? progressContext(current, activeReference()) : null;
+        const currentIdx = Number.isFinite(Number(currentCtx?.startIndex)) ? Number(currentCtx.startIndex) : 0;
+        const currentStop = current?.stops?.[currentIdx];
+        const coreAnchor = currentStop ? tripInfoForStop(currentStop, currentIdx + 1) : null;
+        console.info("OVFlow run resolver", {
+          line: state.payload?.line || "",
+          destination: state.payload?.destination || "",
+          coreIdentity: data.identity || null,
+          currentStop: currentStop?.name || "",
+          coreAnchorTime: coreAnchor?.time || null,
+          coreAnchorPlanned: coreAnchor?.plannedTime || null,
+          staticMatchedTripId: state.scheduleTimes?.matchedTripId || "",
+          scheduleShiftSeconds: scheduleAlignmentSeconds()
+        });
+      }
       return data;
     } catch (error) {
       console.warn("OVFlow Live: Core-haltetijden fallback niet beschikbaar", error);
