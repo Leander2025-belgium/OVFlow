@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // OVFlow Live 5.3 — authoritative run resolver: GTFS-RT > De Lijn Core run > aligned GTFS static.
+  // OVFlow Live 5.4 — active-run resolver: current vehicle/stop + current time resolve the correct GTFS run.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -10,7 +10,7 @@
     payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null,
     vehicleTimer: null, infoTimer: null, loading: false,
     tripTimes: { byStopId: new Map(), bySequence: new Map(), source: "", updatedAt: null, generalDelaySeconds: 0 },
-    scheduleTimes: { byStopId: new Map(), bySequence: new Map(), source: "", matchedTripId: "", count: 0, loadedFor: "" },
+    scheduleTimes: { byStopId: new Map(), bySequence: new Map(), source: "", matchedTripId: "", originalMatchedTripId: "", count: 0, loadedFor: "", runResolved: false, anchorDeltaSeconds: null },
     fallbackTimesLoading: false,
     map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false, stopsVisible: true, userPauseUntil: 0, _segmentFitted: false }
   };
@@ -101,6 +101,10 @@
     const route = currentRoute();
     const p = state.payload || {};
     if (!route?.stops?.length || !state.scheduleTimes?.count) return 0;
+    // Backend 4.9.7 already resolved the active scheduled run against the
+    // current stop + current wall time. Never re-align that run with a stale
+    // planner payload (the exact bug that produced 16:38 instead of 14:38).
+    if (state.scheduleTimes.runResolved) return 0;
 
     // Use the stop the user/vehicle is actually at whenever possible. A generic
     // line click can otherwise carry a valid GTFS trip pattern for a *later run*
@@ -194,7 +198,13 @@
     const delay = currentDelaySeconds(stop, sequence);
 
     if (rt?.time && !rt.fallback) {
-      return { time: rt.time, plannedTime: planned, delay: Number(rt.delay || 0), realtime: true, estimated: false, source: "gtfs-rt" };
+      // A stale planner tripId can also point to a later GTFS-RT run. When the
+      // backend had to resolve a different active static run, reject an RT time
+      // that is wildly inconsistent with that resolved stop time.
+      const rtd = epochOrDate(rt.time);
+      const pd = epochOrDate(planned);
+      const inconsistent = state.scheduleTimes.runResolved && rtd && pd && Math.abs(rtd.getTime() - pd.getTime()) > 30 * 60 * 1000;
+      if (!inconsistent) return { time: rt.time, plannedTime: planned, delay: Number(rt.delay || 0), realtime: true, estimated: false, source: "gtfs-rt" };
     }
     // De Lijn Core is the best fallback for identifying the *active run* when
     // GTFS-RT has no TripUpdate. Prefer it over an uncalibrated static slot.
@@ -214,38 +224,57 @@
     const p = state.payload || {};
     if (!API_BASE || !p.tripId) return null;
     const wanted = canonicalTripId(p.tripId);
-    if (!force && state.scheduleTimes.loadedFor === wanted && state.scheduleTimes.count > 0) return state.scheduleTimes;
+
+    // Re-resolve periodically because the current stop advances during the run.
+    // The backend uses the stop sequence + current wall time to reject a stale
+    // future/past run while preserving the correct route/headsign.
+    let currentSequence = 1;
+    const route = currentRoute();
+    if (route?.stops?.length) {
+      try {
+        const ref = activeReference();
+        if (ref) currentSequence = Math.max(1, Number(progressContext(route, ref)?.startIndex || 0) + 1);
+        else currentSequence = Math.max(1, boardingIndex(route) + 1);
+      } catch { currentSequence = Math.max(1, boardingIndex(route) + 1); }
+    }
+    const loadKey = `${wanted}:${currentSequence}`;
+    if (!force && state.scheduleTimes.loadedFor === loadKey && state.scheduleTimes.count > 0) return state.scheduleTimes;
     try {
       const url = new URL(`${API_BASE}/api/v5/delijn/trip-stop-times`);
       url.searchParams.set("tripId", p.tripId);
-      url.searchParams.set("anchor", p.realtimeDeparture || p.plannedDeparture || new Date().toISOString());
-      const data = await getJson(url, 12000, 1);
+      url.searchParams.set("anchor", new Date().toISOString());
+      url.searchParams.set("currentSequence", String(currentSequence));
+      if (p.destination) url.searchParams.set("destination", p.destination);
+      const data = await getJson(url, 16000, 1);
       const byStopId = new Map(), bySequence = new Map();
       (Array.isArray(data?.stops) ? data.stops : []).forEach(st => {
         const time = st.scheduledDeparture || st.scheduledArrival || null;
         if (!time) return;
         const info = {
           time, scheduledDeparture: st.scheduledDeparture || null, scheduledArrival: st.scheduledArrival || null,
-          stopSequence: Number(st.stopSequence), stopName: st.stopName || "", source: "gtfs-static"
+          source: data?.source || "delijn-gtfs-static-stop-times-active-run", stopSequence: Number(st.stopSequence || 0)
         };
         const sid = canonicalStopId(st.stopId);
         if (sid) byStopId.set(sid, info);
-        if (Number.isFinite(info.stopSequence)) bySequence.set(info.stopSequence, info);
+        if (Number(st.stopSequence)) bySequence.set(Number(st.stopSequence), info);
       });
       state.scheduleTimes = {
-        byStopId, bySequence, source: data?.source || "delijn-gtfs-static-stop-times",
-        matchedTripId: data?.matchedGtfsTripId || "", count: Number(data?.stopTimesCount || bySequence.size), loadedFor: wanted
+        byStopId, bySequence, source: data?.source || "delijn-gtfs-static-stop-times-active-run",
+        matchedTripId: data?.matchedGtfsTripId || "", originalMatchedTripId: data?.originalMatchedGtfsTripId || "",
+        count: Number(data?.stopTimesCount || bySequence.size), loadedFor: loadKey,
+        runResolved: Boolean(data?.runResolved), anchorDeltaSeconds: data?.anchorDeltaSeconds ?? null
       };
-      console.info("OVFlow GTFS stop_times", {
+      console.info("OVFlow active run", {
         realtimeTripId: p.tripId, normalizedTripId: canonicalTripId(p.tripId),
-        matchedGtfsTripId: state.scheduleTimes.matchedTripId, stopTimes: state.scheduleTimes.count,
-        scheduleAlignmentSeconds: currentRoute() ? scheduleAlignmentSeconds() : 0
+        originalMatchedGtfsTripId: state.scheduleTimes.originalMatchedTripId,
+        matchedGtfsTripId: state.scheduleTimes.matchedTripId, runResolved: state.scheduleTimes.runResolved,
+        currentSequence, anchorDeltaSeconds: state.scheduleTimes.anchorDeltaSeconds, stopTimes: state.scheduleTimes.count
       });
       if (currentRoute()) renderRoutes();
-      return data;
+      return state.scheduleTimes;
     } catch (error) {
-      console.warn("OVFlow Live: GTFS stop_times niet beschikbaar", {
-        realtimeTripId: p.tripId, normalizedTripId: canonicalTripId(p.tripId), error: error.message
+      console.warn("OVFlow Live: actieve GTFS stop_times niet beschikbaar", {
+        realtimeTripId: p.tripId, normalizedTripId: canonicalTripId(p.tripId), currentSequence, error: error.message
       });
       return null;
     }
@@ -311,7 +340,7 @@
       url.searchParams.set("line", state.payload.line);
       if (state.payload.destination) url.searchParams.set("destination", state.payload.destination);
       url.searchParams.set("stops", upcoming.map(s => `${s.entiteit}:${s.stopId}`).join(","));
-      const anchor = state.payload.realtimeDeparture || state.payload.plannedDeparture || new Date().toISOString();
+      const anchor = new Date().toISOString();
       url.searchParams.set("anchor", anchor);
       const data = await getJson(url, 15000, 1);
       const byId = state.tripTimes.byStopId || new Map();
@@ -1323,7 +1352,7 @@
   async function refreshInfo() {
     if (document.hidden) return;
     try {
-      await Promise.all([fetchTripTimes(), fetchTripSchedule()]);
+      await Promise.all([fetchTripTimes(), fetchTripSchedule(true)]);
       await fetchFallbackStopTimes();
       if (currentRoute()) { renderRoutes(); updateJourneyCard(); }
     } catch (error) {
@@ -1362,7 +1391,8 @@
 
       // Vehicle GPS must never block the route/stop UI. fetchVehicle handles its
       // own errors and can fall back to the phone location.
-      await Promise.all([fetchVehicle(), fetchTripTimes(), fetchTripSchedule()]);
+      await fetchVehicle();
+      await Promise.all([fetchTripTimes(), fetchTripSchedule(true)]);
       await fetchFallbackStopTimes();
       if (currentRoute()) { renderRoutes(); updateJourneyCard(); }
 
