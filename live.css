@@ -809,3 +809,11 @@ body:before{
   .route-hero{height:68px;min-height:68px}.map-card{height:132px;min-height:132px}.journey-card{height:96px;min-height:96px}
   .stop-row{height:43px;min-height:43px!important}
 }
+
+/* OVFlow Live 5.7 — semantic stop state + delay colors */
+.stop-time .now-label{color:#18b978!important;font-weight:850}
+.stop-time .delay-mini{display:block;margin-top:2px;font-weight:850}
+.stop-time .delay-mini.late{color:#f04444!important}
+.stop-time .delay-mini.early{color:#0a8dff!important}
+.stop-row.upcoming-current .stop-dot{background:#fff;border-color:#0a8dff;box-shadow:0 0 0 5px rgba(10,141,255,.10)}
+.stop-row.upcoming-current .stop-main small.current-label{color:#0a8dff}

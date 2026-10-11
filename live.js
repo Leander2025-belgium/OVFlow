@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // OVFlow Live 5.6 — active-stop run lock: resolve the timetable using the actual GPS stop_id, never a trimmed-list index.
+  // OVFlow Live 5.7 — complete stop times + correct en-route/current-stop semantics.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -10,7 +10,7 @@
     payload: null, routes: [], routeIndex: 0, position: null, userPosition: null, geoWatchId: null, geoRequest: null,
     vehicleTimer: null, infoTimer: null, loading: false,
     tripTimes: { byStopId: new Map(), bySequence: new Map(), source: "", updatedAt: null, generalDelaySeconds: 0 },
-    scheduleTimes: { byStopId: new Map(), bySequence: new Map(), source: "", matchedTripId: "", originalMatchedTripId: "", count: 0, loadedFor: "", runResolved: false, anchorDeltaSeconds: null },
+    scheduleTimes: { byStopId: new Map(), bySequence: new Map(), byName: new Map(), source: "", matchedTripId: "", originalMatchedTripId: "", count: 0, loadedFor: "", runResolved: false, anchorDeltaSeconds: null },
     fallbackTimesLoading: false,
     map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false, stopsVisible: true, userPauseUntil: 0, _segmentFitted: false }
   };
@@ -88,7 +88,10 @@
 
   function rawScheduleInfoForStop(stop, sequence) {
     const sid = canonicalStopId(stop?.stopId);
-    return (sid ? state.scheduleTimes.byStopId.get(sid) : null) || state.scheduleTimes.bySequence.get(Number(sequence)) || null;
+    const byId = sid ? state.scheduleTimes.byStopId.get(sid) : null;
+    const bySeq = state.scheduleTimes.bySequence.get(Number(sequence));
+    const byName = stop?.name ? state.scheduleTimes.byName?.get(norm(stop.name)) : null;
+    return byId || byName || bySeq || null;
   }
 
   // Static GTFS may occasionally resolve to another run with exactly the same
@@ -264,10 +267,10 @@
           currentStopId, currentSequence, anchorDeltaSeconds: delta,
           matchedGtfsTripId: data?.matchedGtfsTripId || ""
         });
-        state.scheduleTimes = { byStopId:new Map(), bySequence:new Map(), source:"", matchedTripId:"", originalMatchedTripId:"", count:0, loadedFor:loadKey, runResolved:false, anchorDeltaSeconds:delta };
+        state.scheduleTimes = { byStopId:new Map(), bySequence:new Map(), byName:new Map(), source:"", matchedTripId:"", originalMatchedTripId:"", count:0, loadedFor:loadKey, runResolved:false, anchorDeltaSeconds:delta };
         return state.scheduleTimes;
       }
-      const byStopId = new Map(), bySequence = new Map();
+      const byStopId = new Map(), bySequence = new Map(), byName = new Map();
       (Array.isArray(data?.stops) ? data.stops : []).forEach(st => {
         const time = st.scheduledDeparture || st.scheduledArrival || null;
         if (!time) return;
@@ -277,10 +280,11 @@
         };
         const sid = canonicalStopId(st.stopId);
         if (sid) byStopId.set(sid, info);
+        if (st.stopName) byName.set(norm(st.stopName), info);
         if (Number(st.stopSequence)) bySequence.set(Number(st.stopSequence), info);
       });
       state.scheduleTimes = {
-        byStopId, bySequence, source: data?.source || "delijn-gtfs-static-stop-times-active-run",
+        byStopId, bySequence, byName, source: data?.source || "delijn-gtfs-static-stop-times-active-run",
         matchedTripId: data?.matchedGtfsTripId || "", originalMatchedTripId: data?.originalMatchedGtfsTripId || "",
         count: Number(data?.stopTimesCount || bySequence.size), loadedFor: loadKey,
         runResolved: Boolean(data?.runResolved), anchorDeltaSeconds: data?.anchorDeltaSeconds ?? null
@@ -1110,6 +1114,16 @@
     return Math.max(0, Math.min(100, ((distance - prevD) / (nextD - prevD)) * 100));
   }
 
+  function stopPresence(route, index, reference = activeReference()) {
+    const stop = route?.stops?.[index];
+    if (!stop || !reference) return { atStop:false, distance:Infinity, label:"" };
+    const distance = haversine(reference.lat, reference.lon, stop.lat, stop.lon);
+    const speed = Number(state.position?.speed);
+    const close = Number.isFinite(distance) && distance <= 85;
+    const slowEnough = !Number.isFinite(speed) || speed <= 5.5;
+    return { atStop: close && slowEnough, distance, label: close && slowEnough ? "Huidige halte" : "Volgende halte" };
+  }
+
   function updateJourneyCard() {
     const route = currentRoute();
     if (!route?.stops?.length) return;
@@ -1118,8 +1132,11 @@
     const i = Math.max(0, Math.min(route.stops.length - 1, ctx.startIndex));
     const stop = route.stops[i];
     setText("mapNextStop", stop?.name || "Eindhalte");
+    const presence = stopPresence(route, i, ref);
     setText("mapNearestStop", ref
-      ? (isUserFallback() ? `Jij · ${stop?.name || "langs de route"}` : `Nu bij · ${stop?.name || "—"}`)
+      ? (isUserFallback()
+          ? `Jij · ${stop?.name || "langs de route"}`
+          : `${presence.atStop ? "Nu bij" : "Onderweg naar"} · ${stop?.name || "—"}`)
       : "GPS tijdelijk niet beschikbaar");
 
     const timeInfo = bestTimeInfoForStop(stop, i + 1);
@@ -1304,9 +1321,12 @@
       const delayMin = Math.round(delaySec / 60);
       const delayLabel = delayMin !== 0 ? `${delayMin > 0 ? "+" : ""}${delayMin} min${timeInfo.estimated ? " · geschat" : ""}` : "";
       const isCurrent = i === ctx.startIndex;
-      const subtitle = i === route.stops.length - 1 ? "Eindhalte" : (isCurrent ? "Huidige halte" : "");
-      return `<div class="stop-row ${cls}" data-stop-index="${i}">
-        <div class="stop-time">${esc(timeLabel)}${isCurrent ? `<small>Nu${delayLabel ? ` · ${esc(delayLabel)}` : ""}</small>` : (delayLabel ? `<small class="delay-mini ${delayMin > 0 ? "late" : "early"}">${esc(delayLabel)}</small>` : "")}</div>
+      const presence = isCurrent ? stopPresence(route, i, activeReference()) : { atStop:false };
+      const subtitle = i === route.stops.length - 1 ? "Eindhalte" : (isCurrent ? (presence.atStop ? "Huidige halte" : "Volgende halte") : "");
+      const timingMeta = delayLabel ? `<small class="delay-mini ${delayMin > 0 ? "late" : "early"}">${esc(delayLabel)}</small>` : "";
+      const nowMeta = isCurrent && presence.atStop ? `<small class="now-label">Nu</small>` : "";
+      return `<div class="stop-row ${cls} ${isCurrent && !presence.atStop ? "upcoming-current" : ""}" data-stop-index="${i}">
+        <div class="stop-time">${esc(timeLabel)}${nowMeta}${timingMeta}</div>
         <div class="stop-track"><div class="stop-dot"></div></div>
         <div class="stop-main"><strong>${esc(stop.name)}</strong>${subtitle ? `<small class="${isCurrent ? "current-label" : ""}">${esc(subtitle)}</small>` : ""}</div>
         <div class="stop-end">${extra ? `<span class="stop-extra">${esc(extra)}</span>` : ""}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></div>
