@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // OVFlow Live 5.5 — GPS/sequence sanity: never let stale RT stop_sequence jump the trip to the terminus.
+  // OVFlow Live 5.6 — active-stop run lock: resolve the timetable using the actual GPS stop_id, never a trimmed-list index.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -239,15 +239,34 @@
         } else currentSequence = Math.max(1, boardingIndex(route) + 1);
       } catch { currentSequence = Math.max(1, boardingIndex(route) + 1); }
     }
-    const loadKey = `${wanted}:${currentSequence}`;
+    let currentStopId = "";
+    try {
+      const ref = activeReference();
+      const idx = route?.stops?.length && ref ? geometryProgressIndex(route, ref) : Math.max(0, boardingIndex(route));
+      currentStopId = canonicalStopId(route?.stops?.[Math.max(0, idx)]?.stopId || "");
+    } catch {}
+    const loadKey = `${wanted}:${currentStopId || currentSequence}`;
     if (!force && state.scheduleTimes.loadedFor === loadKey && state.scheduleTimes.count > 0) return state.scheduleTimes;
     try {
       const url = new URL(`${API_BASE}/api/v5/delijn/trip-stop-times`);
       url.searchParams.set("tripId", p.tripId);
       url.searchParams.set("anchor", new Date().toISOString());
       url.searchParams.set("currentSequence", String(currentSequence));
+      if (currentStopId) url.searchParams.set("currentStopId", currentStopId);
       if (p.destination) url.searchParams.set("destination", p.destination);
       const data = await getJson(url, 16000, 1);
+      // Hard sanity guard: never put a timetable on screen when the backend
+      // itself says the matched run is far from the current wall clock. A
+      // two-hour slot error must degrade to Core/—, never be presented as truth.
+      const delta = Number(data?.anchorDeltaSeconds);
+      if (Number.isFinite(delta) && Math.abs(delta) > 45 * 60 && !data?.runResolved) {
+        console.warn("OVFlow Live: statische run verworpen wegens tijdsafstand", {
+          currentStopId, currentSequence, anchorDeltaSeconds: delta,
+          matchedGtfsTripId: data?.matchedGtfsTripId || ""
+        });
+        state.scheduleTimes = { byStopId:new Map(), bySequence:new Map(), source:"", matchedTripId:"", originalMatchedTripId:"", count:0, loadedFor:loadKey, runResolved:false, anchorDeltaSeconds:delta };
+        return state.scheduleTimes;
+      }
       const byStopId = new Map(), bySequence = new Map();
       (Array.isArray(data?.stops) ? data.stops : []).forEach(st => {
         const time = st.scheduledDeparture || st.scheduledArrival || null;
@@ -270,7 +289,7 @@
         realtimeTripId: p.tripId, normalizedTripId: canonicalTripId(p.tripId),
         originalMatchedGtfsTripId: state.scheduleTimes.originalMatchedTripId,
         matchedGtfsTripId: state.scheduleTimes.matchedTripId, runResolved: state.scheduleTimes.runResolved,
-        currentSequence, anchorDeltaSeconds: state.scheduleTimes.anchorDeltaSeconds, stopTimes: state.scheduleTimes.count
+        currentSequence, currentStopId, anchorDeltaSeconds: state.scheduleTimes.anchorDeltaSeconds, stopTimes: state.scheduleTimes.count
       });
       if (currentRoute()) renderRoutes();
       return state.scheduleTimes;
