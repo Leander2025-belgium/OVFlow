@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // OVFlow Live 5.4 — active-run resolver: current vehicle/stop + current time resolve the correct GTFS run.
+  // OVFlow Live 5.5 — GPS/sequence sanity: never let stale RT stop_sequence jump the trip to the terminus.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -233,8 +233,10 @@
     if (route?.stops?.length) {
       try {
         const ref = activeReference();
-        if (ref) currentSequence = Math.max(1, Number(progressContext(route, ref)?.startIndex || 0) + 1);
-        else currentSequence = Math.max(1, boardingIndex(route) + 1);
+        if (ref) {
+          const geoIdx = geometryProgressIndex(route, ref);
+          currentSequence = Math.max(1, Number(geoIdx >= 0 ? geoIdx : boardingIndex(route)) + 1);
+        } else currentSequence = Math.max(1, boardingIndex(route) + 1);
       } catch { currentSequence = Math.max(1, boardingIndex(route) + 1); }
     }
     const loadKey = `${wanted}:${currentSequence}`;
@@ -869,6 +871,37 @@
     return route.stops.length - 1;
   }
 
+  function geometryProgressIndex(route, reference = activeReference()) {
+    if (!route?.stops?.length || !reference) return -1;
+    const fallbackStart = Math.max(0, boardingIndex(route));
+    const model = progressModel(route);
+    if (!model) return Math.max(fallbackStart, nearestVehicleIndex(route, reference));
+    const pointIndex = nearestPointIndex(model.points, reference.lat, reference.lon);
+    if (pointIndex < 0) return Math.max(fallbackStart, nearestVehicleIndex(route, reference));
+    const distance = model.cumulative[pointIndex] || 0;
+    let candidate = fallbackStart;
+    for (let i = fallbackStart; i < model.stopDistances.length; i++) {
+      const d = model.stopDistances[i];
+      if (d !== null && distance > d + 45) candidate = i + 1;
+      else break;
+    }
+    return Math.min(route.stops.length - 1, Math.max(fallbackStart, candidate));
+  }
+
+  function identifierIndexIsPlausible(route, idx, reference = activeReference()) {
+    if (!route?.stops?.length || idx < 0 || idx >= route.stops.length) return false;
+    if (!reference || isUserFallback()) return true;
+    const geoIdx = geometryProgressIndex(route, reference);
+    const stop = route.stops[idx];
+    const direct = stop ? haversine(reference.lat, reference.lon, stop.lat, stop.lon) : Infinity;
+    // RT stop_sequence/stopId occasionally belongs to a stale/wrong run. A claimed
+    // current stop several stops or kilometres away from the actual GPS position
+    // must never be allowed to collapse the timeline to the terminus.
+    const closeByIndex = geoIdx < 0 || Math.abs(idx - geoIdx) <= 3;
+    const closeByDistance = Number.isFinite(direct) && direct <= 2500;
+    return closeByIndex || closeByDistance;
+  }
+
   function progressContext(route, reference = activeReference()) {
     const fallbackStart = Math.max(0, boardingIndex(route));
     if (!route?.stops?.length) return { startIndex: 0, nearestIndex: -1, pct: 0, passed: 0, source: "none" };
@@ -890,15 +923,21 @@
         });
         if (idIndex >= 0) {
           const idx = Math.max(fallbackStart, idIndex);
-          route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, idx);
-          return { startIndex: route._stableStartIndex, nearestIndex: idx, pct: idx / Math.max(1, route.stops.length - 1) * 100, passed: idx, source: "stopId" };
+          if (identifierIndexIsPlausible(route, idx, reference)) {
+            route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, idx);
+            return { startIndex: route._stableStartIndex, nearestIndex: idx, pct: idx / Math.max(1, route.stops.length - 1) * 100, passed: idx, source: "stopId" };
+          }
+          console.warn("OVFlow: stale/wrong RT stopId genegeerd", { stopId, idIndex, gpsIndex: geometryProgressIndex(route, reference) });
         }
       }
       const seq = Number(state.position.currentStopSequence);
       if (Number.isFinite(seq) && seq > 0 && seq <= route.stops.length + 3) {
         const idx = Math.max(fallbackStart, Math.min(route.stops.length - 1, Math.round(seq) - 1));
-        route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, idx);
-        return { startIndex: route._stableStartIndex, nearestIndex: idx, pct: idx / Math.max(1, route.stops.length - 1) * 100, passed: idx, source: "sequence" };
+        if (identifierIndexIsPlausible(route, idx, reference)) {
+          route._stableStartIndex = Math.max(route._stableStartIndex ?? 0, idx);
+          return { startIndex: route._stableStartIndex, nearestIndex: idx, pct: idx / Math.max(1, route.stops.length - 1) * 100, passed: idx, source: "sequence" };
+        }
+        console.warn("OVFlow: stale/wrong RT stop_sequence genegeerd", { seq, sequenceIndex: idx, gpsIndex: geometryProgressIndex(route, reference) });
       }
     }
 
@@ -1271,6 +1310,16 @@
       if (p.line) url.searchParams.set("line", p.line);
       const data = await getJson(url, 9000, 0);
       state.position = data?.position && !data.position.stale ? data.position : null;
+      if (state.position) {
+        const route = currentRoute();
+        if (route?._stableStartIndex != null) {
+          const geoIdx = geometryProgressIndex(route, state.position);
+          if (geoIdx >= 0 && Math.abs(Number(route._stableStartIndex) - geoIdx) > 4) {
+            console.warn("OVFlow: foutieve sticky current-stop lock hersteld", { oldIndex: route._stableStartIndex, gpsIndex: geoIdx });
+            route._stableStartIndex = geoIdx;
+          }
+        }
+      }
       renderVehicle(state.position ? "" : "De Lijn levert voor deze rit momenteel geen exacte voertuigpositie.");
       if (!state.position) ensureUserLocation().catch(() => {});
     } catch (error) {
