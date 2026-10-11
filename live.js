@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // OVFlow Live 5.2 — exact GTFS stop_times + coherent realtime timeline.
+  // OVFlow Live 5.2.1 — GTFS stop_times aligned to the selected departure + coherent realtime timeline.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -86,9 +86,62 @@
     return String(value || "").trim().replace(/^gt:delijn:/i, "").replace(/^delijn:/i, "");
   }
 
-  function scheduleInfoForStop(stop, sequence) {
+  function rawScheduleInfoForStop(stop, sequence) {
     const sid = canonicalStopId(stop?.stopId);
     return (sid ? state.scheduleTimes.byStopId.get(sid) : null) || state.scheduleTimes.bySequence.get(Number(sequence)) || null;
+  }
+
+  // Static GTFS may occasionally resolve to another run with exactly the same
+  // stop pattern but a different departure slot.  The selected departure in
+  // OVFlow is authoritative for the boarding stop, so calibrate the static
+  // timetable to that known point and keep every stop's own interval intact.
+  // This prevents a live bus at 14:18 from suddenly showing 16:41 at the
+  // destination merely because the static trip-id matched a later run.
+  function scheduleAlignmentSeconds() {
+    const route = currentRoute();
+    const p = state.payload || {};
+    if (!route?.stops?.length || !state.scheduleTimes?.count) return 0;
+
+    const idx = boardingIndex(route);
+    if (idx < 0 || idx >= route.stops.length) return 0;
+    const raw = rawScheduleInfoForStop(route.stops[idx], idx + 1);
+    const scheduled = epochOrDate(raw?.time || raw?.scheduledDeparture || raw?.scheduledArrival);
+    if (!scheduled) return 0;
+
+    let anchor = epochOrDate(p.plannedDeparture);
+    if (!anchor) {
+      const realtime = epochOrDate(p.realtimeDeparture);
+      if (realtime) {
+        const delaySeconds = Math.round(Number(p.delayMinutes || 0) * 60);
+        anchor = new Date(realtime.getTime() - delaySeconds * 1000);
+      }
+    }
+    if (!anchor) return 0;
+
+    let diff = Math.round((anchor.getTime() - scheduled.getTime()) / 1000);
+    // GTFS allows times beyond 24:00. Normalize a possible service-day wrap
+    // to the closest clock-equivalent offset before using it.
+    while (diff > 12 * 3600) diff -= 24 * 3600;
+    while (diff < -12 * 3600) diff += 24 * 3600;
+
+    // Tiny differences are normal rounding/noise and do not need shifting.
+    if (Math.abs(diff) < 30) return 0;
+    return diff;
+  }
+
+  function scheduleInfoForStop(stop, sequence) {
+    const raw = rawScheduleInfoForStop(stop, sequence);
+    if (!raw) return null;
+    const shift = scheduleAlignmentSeconds();
+    if (!shift) return raw;
+    return {
+      ...raw,
+      time: raw.time ? addSeconds(raw.time, shift) : raw.time,
+      scheduledDeparture: raw.scheduledDeparture ? addSeconds(raw.scheduledDeparture, shift) : raw.scheduledDeparture,
+      scheduledArrival: raw.scheduledArrival ? addSeconds(raw.scheduledArrival, shift) : raw.scheduledArrival,
+      scheduleShiftSeconds: shift,
+      source: `${raw.source || "gtfs-static"}+departure-alignment`
+    };
   }
 
   function addSeconds(value, seconds) {
@@ -156,7 +209,8 @@
       };
       console.info("OVFlow GTFS stop_times", {
         realtimeTripId: p.tripId, normalizedTripId: canonicalTripId(p.tripId),
-        matchedGtfsTripId: state.scheduleTimes.matchedTripId, stopTimes: state.scheduleTimes.count
+        matchedGtfsTripId: state.scheduleTimes.matchedTripId, stopTimes: state.scheduleTimes.count,
+        scheduleAlignmentSeconds: currentRoute() ? scheduleAlignmentSeconds() : 0
       });
       if (currentRoute()) renderRoutes();
       return data;
