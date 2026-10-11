@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // OVFlow Live 5.7 — complete stop times + correct en-route/current-stop semantics.
+  // OVFlow Live 6.0 — premium viewport, aligned timeline and live distance-to-stop.
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").replace(/\/$/, "");
@@ -1124,6 +1124,35 @@
     return { atStop: close && slowEnough, distance, label: close && slowEnough ? "Huidige halte" : "Volgende halte" };
   }
 
+  function formatStopDistance(meters) {
+    const m = Number(meters);
+    if (!Number.isFinite(m) || m < 0) return "";
+    if (m < 100) return `${Math.max(0, Math.round(m / 5) * 5)} m`;
+    if (m < 1000) return `${Math.round(m / 10) * 10} m`;
+    if (m < 10000) return `${(m / 1000).toFixed(1).replace(".0", "")} km`;
+    return `${Math.round(m / 1000)} km`;
+  }
+
+  // Prefer distance along the actual GTFS shape. Direct distance is only a
+  // fallback, so curving roads / canals do not make the next stop look closer
+  // than it really is.
+  function distanceToStop(route, stopIndex, reference = activeReference()) {
+    const stop = route?.stops?.[stopIndex];
+    if (!stop || !reference) return null;
+    const direct = haversine(reference.lat, reference.lon, stop.lat, stop.lon);
+    const model = progressModel(route);
+    if (!model) return Number.isFinite(direct) ? direct : null;
+    const pointIndex = nearestPointIndex(model.points, reference.lat, reference.lon);
+    const stopDistance = model.stopDistances?.[stopIndex];
+    if (pointIndex < 0 || !Number.isFinite(stopDistance)) return Number.isFinite(direct) ? direct : null;
+    const currentDistance = Number(model.cumulative?.[pointIndex] || 0);
+    const along = Math.max(0, Number(stopDistance) - currentDistance);
+    // Very close to the stop, GPS-to-stop distance is more intuitive than a
+    // shape projection that may already have crossed the stop point slightly.
+    if (Number.isFinite(direct) && direct < 120) return direct;
+    return Number.isFinite(along) ? along : (Number.isFinite(direct) ? direct : null);
+  }
+
   function updateJourneyCard() {
     const route = currentRoute();
     if (!route?.stops?.length) return;
@@ -1135,9 +1164,18 @@
     const presence = stopPresence(route, i, ref);
     setText("mapNearestStop", ref
       ? (isUserFallback()
-          ? `Jij · ${stop?.name || "langs de route"}`
+          ? `Jouw positie · ${stop?.name || "langs de route"}`
           : `${presence.atStop ? "Nu bij" : "Onderweg naar"} · ${stop?.name || "—"}`)
       : "GPS tijdelijk niet beschikbaar");
+
+    const distanceEl = $("distanceToStop");
+    const metersToStop = distanceToStop(route, i, ref);
+    if (distanceEl) {
+      const label = formatStopDistance(metersToStop);
+      distanceEl.textContent = label ? `${label} tot halte` : "";
+      distanceEl.classList.toggle("hidden", !label);
+      distanceEl.classList.toggle("at-stop", Boolean(presence.atStop));
+    }
 
     const timeInfo = bestTimeInfoForStop(stop, i + 1);
     const departure = timeInfo.time;
@@ -1214,7 +1252,7 @@
       });
       state.map.stopMarkers.push(marker);
     });
-    fitRoute();
+    fitLiveSegment();
     updateMapHighlights();
     updateBusOnMap();
     setTimeout(() => map.invalidateSize(), 80);
@@ -1325,10 +1363,12 @@
       const subtitle = i === route.stops.length - 1 ? "Eindhalte" : (isCurrent ? (presence.atStop ? "Huidige halte" : "Volgende halte") : "");
       const timingMeta = delayLabel ? `<small class="delay-mini ${delayMin > 0 ? "late" : "early"}">${esc(delayLabel)}</small>` : "";
       const nowMeta = isCurrent && presence.atStop ? `<small class="now-label">Nu</small>` : "";
-      return `<div class="stop-row ${cls} ${isCurrent && !presence.atStop ? "upcoming-current" : ""}" data-stop-index="${i}">
+      const rowDistance = isCurrent ? formatStopDistance(distanceToStop(route, i, activeReference())) : "";
+      const stopMeta = [subtitle, rowDistance && !presence.atStop ? `${rowDistance} verder` : ""].filter(Boolean).join(" · ");
+      return `<div class="stop-row ${cls} ${isCurrent && !presence.atStop ? "upcoming-current" : ""}" data-stop-index="${i}" title="${esc(stop.name)}">
         <div class="stop-time">${esc(timeLabel)}${nowMeta}${timingMeta}</div>
         <div class="stop-track"><div class="stop-dot"></div></div>
-        <div class="stop-main"><strong>${esc(stop.name)}</strong>${subtitle ? `<small class="${isCurrent ? "current-label" : ""}">${esc(subtitle)}</small>` : ""}</div>
+        <div class="stop-main"><strong>${esc(stop.name)}</strong>${stopMeta ? `<small class="${isCurrent ? "current-label" : ""}">${esc(stopMeta)}</small>` : ""}</div>
         <div class="stop-end">${extra ? `<span class="stop-extra">${esc(extra)}</span>` : ""}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></div>
       </div>`;
     }).join("");

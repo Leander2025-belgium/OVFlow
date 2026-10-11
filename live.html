@@ -7,12 +7,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Live · OVFlow 5.7</title>
+  <title>Live · OVFlow 6.0</title>
   <link rel="icon" href="ovflow-icon-192.png">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="live.css?v=live5.6">
+  <link rel="stylesheet" href="live.css?v=live6.0">
 </head>
 <body>
   <div class="live-shell">
@@ -23,7 +23,7 @@
 
       <div class="brand-lockup" aria-label="OVFlow Live 5.0">
         <strong>Live</strong>
-        <small>OVFlow 5.7</small>
+        <small>OVFlow 6.0</small>
       </div>
 
       <div class="top-actions">
@@ -108,7 +108,10 @@
             <div class="journey-next">
               <span class="label">VOLGENDE HALTE</span>
               <strong id="mapNextStop">—</strong>
-              <small id="mapNearestStop">Positie bepalen…</small>
+              <div class="journey-submeta">
+                <small id="mapNearestStop">Positie bepalen…</small>
+                <span id="distanceToStop" class="distance-pill hidden">—</span>
+              </div>
             </div>
           </div>
           <div class="journey-time">
@@ -173,8 +176,8 @@
     </main>
   </div>
 
-  <script src="config.js?v=live5.6"></script>
+  <script src="config.js?v=live6.0"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="live.js?v=live5.6"></script>
+  <script src="live.js?v=live6.0"></script>
 </body>
 </html>
