@@ -52,7 +52,10 @@
   }
 
   function timeText(value) {
-    const d = parseDate(value);
+    // Live 6.0 geeft Unix timestamps in seconden. new Date(1792077524)
+    // behandelt dat als milliseconden (1970) en liet daardoor veel haltes
+    // bijna hetzelfde uur tonen. Gebruik altijd de epoch-aware parser.
+    const d = epochOrDate(value);
     return d ? new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(d) : "—";
   }
 
@@ -1218,10 +1221,20 @@
     const stop = route?.stops?.[index];
     if (!stop || !reference) return { atStop:false, distance:Infinity, label:"" };
     const distance = haversine(reference.lat, reference.lon, stop.lat, stop.lon);
+
+    // De Live 6.0 backend heeft GPS + GTFS-RT al gecombineerd. Als hij de bus
+    // expliciet AT_STOP noemt voor deze sequence, is dat betrouwbaarder dan
+    // opnieuw een losse frontend-afstandsbeslissing te maken.
+    const serverSeq = Number(state.position?.currentStopSequence);
+    const stopSeq = Number(stop?.stopSequence ?? stop?.index ?? index + 1);
+    const serverAtStop = state.position?.progressStatus === "AT_STOP" &&
+      Number.isFinite(serverSeq) && Number.isFinite(stopSeq) && serverSeq === stopSeq;
+
     const speed = Number(state.position?.speed);
     const close = Number.isFinite(distance) && distance <= 85;
     const slowEnough = !Number.isFinite(speed) || speed <= 5.5;
-    return { atStop: close && slowEnough, distance, label: close && slowEnough ? "Huidige halte" : "Volgende halte" };
+    const atStop = serverAtStop || (close && slowEnough);
+    return { atStop, distance, label: atStop ? "Huidige halte" : "Volgende halte" };
   }
 
   function formatStopDistance(meters) {
