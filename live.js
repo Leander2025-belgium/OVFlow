@@ -12,6 +12,7 @@
     tripTimes: { byStopId: new Map(), bySequence: new Map(), source: "", updatedAt: null, generalDelaySeconds: 0 },
     scheduleTimes: { byStopId: new Map(), bySequence: new Map(), byName: new Map(), source: "", matchedTripId: "", originalMatchedTripId: "", count: 0, loadedFor: "", runResolved: false, anchorDeltaSeconds: null },
     fallbackTimesLoading: false,
+    live6: { data: null, bySequence: new Map(), loadedAt: 0 },
     map: { instance: null, tile: null, routeLayer: null, routeLine: null, stopMarkers: [], busMarker: null, userMarker: null, routeKey: "", ready: false, failed: false, followBus: false, stopsVisible: true, userPauseUntil: 0, _segmentFitted: false }
   };
 
@@ -195,6 +196,20 @@
   // in Je rit. Priority: exact GTFS-RT -> GTFS static + current delay -> GTFS
   // static -> De Lijn Core fallback -> preloaded/planner time -> unavailable.
   function bestTimeInfoForStop(stop, sequence, preloadTime = null) {
+    const live6 = state.live6.bySequence.get(Number(stop?.stopSequence || sequence));
+    if (live6) {
+      const chosen = live6.realtimeDeparture || live6.realtimeArrival || live6.estimatedDeparture || live6.estimatedArrival || live6.scheduledDeparture || live6.scheduledArrival || null;
+      const planned = live6.scheduledDeparture || live6.scheduledArrival || null;
+      const source = live6.timeSource || (live6.realtimeAvailable ? "realtime" : "scheduled");
+      return {
+        time: chosen,
+        plannedTime: planned,
+        delay: Number(live6.departureDelay ?? live6.arrivalDelay ?? 0) || 0,
+        realtime: source === "realtime",
+        estimated: source === "estimated",
+        source: `live6-${source}`
+      };
+    }
     const rt = tripInfoForStop(stop, sequence);
     const sched = scheduleInfoForStop(stop, sequence);
     const planned = sched?.time || sched?.scheduledDeparture || stop?.plannedTime || preloadTime || null;
@@ -1375,6 +1390,95 @@
     updateJourneyCard();
     renderMapRoute();
   }
+  async function fetchLive6() {
+    const p = state.payload || {};
+    if (!API_BASE || !p.tripId) return false;
+    try {
+      const url = new URL(`${API_BASE}/api/v6/delijn/live-trip`);
+      url.searchParams.set("tripId", p.tripId);
+      const data = await getJson(url, 14000, 1);
+      if (!data?.ok || !Array.isArray(data?.stops) || !data.stops.length) return false;
+
+      state.live6.data = data;
+      state.live6.loadedAt = Date.now();
+      state.live6.bySequence = new Map(data.stops.map(st => [Number(st.stopSequence), st]));
+
+      // Live 6.0 is authoritative for destination and the exact stop pattern.
+      if (data.headsign) state.payload.destination = data.headsign;
+      const route = {
+        directionCode: "LIVE6",
+        directionName: data.headsign || state.payload.destination || "Live rit",
+        description: data.headsign ? `Richting ${data.headsign}` : "Live rit",
+        publicLine: state.payload.line,
+        tripHeadsign: data.headsign || "",
+        stops: data.stops.map((st, index) => ({
+          index: Number(st.stopSequence || index + 1),
+          stopSequence: Number(st.stopSequence || index + 1),
+          name: String(st.stopName || `Halte ${index + 1}`),
+          stopId: String(st.stopId || ""),
+          entiteit: "",
+          lat: num(st.lat),
+          lon: num(st.lon),
+          plannedTime: st.scheduledDeparture || st.scheduledArrival || null,
+          live6State: st.progressState || "UPCOMING",
+          live6TimeSource: st.timeSource || "scheduled"
+        }))
+      };
+      state.routes = [route];
+      state.routeIndex = 0;
+
+      const progress = data.progress || {};
+      const vehicle = data.vehicle && !data.vehicle.stale ? { ...data.vehicle } : null;
+      if (vehicle) {
+        vehicle.progressStatus = progress.progressStatus || vehicle.progressStatus || "UNKNOWN";
+        vehicle.previousStopSequence = progress.previousStopSequence ?? vehicle.previousStopSequence ?? null;
+        vehicle.previousStopName = progress.previousStopName || vehicle.previousStopName || "";
+        vehicle.nextStopSequence = progress.nextStopSequence ?? vehicle.nextStopSequence ?? null;
+        vehicle.nextStopId = progress.nextStopId || vehicle.nextStopId || "";
+        vehicle.nextStopName = progress.nextStopName || vehicle.nextStopName || "";
+        vehicle.distanceToNextStopMeters = progress.distanceToNextStopMeters ?? vehicle.distanceToNextStopMeters ?? null;
+        vehicle.nextTimeSource = progress.nextTimeSource || vehicle.nextTimeSource || null;
+        // For BETWEEN_STOPS the next stop is the correct timeline focus.
+        if (vehicle.progressStatus === "BETWEEN_STOPS" && progress.nextStopSequence) {
+          vehicle.currentStopSequence = Number(progress.nextStopSequence);
+          vehicle.stopId = progress.nextStopId || "";
+          vehicle.currentStopName = "";
+        }
+      }
+      state.position = vehicle;
+
+      // Keep older render helpers useful, but feed them with the Live 6.0 data.
+      const byStopId = new Map(), bySequence = new Map();
+      const schedByStopId = new Map(), schedBySequence = new Map(), schedByName = new Map();
+      for (const st of data.stops) {
+        const seq = Number(st.stopSequence);
+        const sid = canonicalStopId(st.stopId);
+        const rtTime = st.realtimeDeparture || st.realtimeArrival || null;
+        if (rtTime) {
+          const info = { time: rtTime, delay: Number(st.departureDelay ?? st.arrivalDelay ?? 0) || 0, realtime: true };
+          bySequence.set(seq, info); if (sid) byStopId.set(sid, info);
+        }
+        const sch = st.scheduledDeparture || st.scheduledArrival || null;
+        if (sch) {
+          const info = { time: sch, scheduledDeparture: st.scheduledDeparture || null, scheduledArrival: st.scheduledArrival || null, source: "live6-static", stopSequence: seq };
+          schedBySequence.set(seq, info); if (sid) schedByStopId.set(sid, info); if (st.stopName) schedByName.set(norm(st.stopName), info);
+        }
+      }
+      state.tripTimes = { byStopId, bySequence, source: "live6", updatedAt: data.updatedAt || new Date().toISOString(), generalDelaySeconds: 0 };
+      state.scheduleTimes = { byStopId: schedByStopId, bySequence: schedBySequence, byName: schedByName, source: "live6-static", matchedTripId: data.matchedGtfsTripId || "", originalMatchedTripId: data.matchedGtfsTripId || "", count: data.stops.length, loadedFor: canonicalTripId(p.tripId), runResolved: false, anchorDeltaSeconds: null };
+
+      renderBase();
+      setText("realtimeChip", data.realtime?.available ? "Live 6.0 · realtime" : "Live 6.0 · dienstregeling");
+      renderRoutes();
+      renderVehicle(state.position ? "" : "Voertuigpositie tijdelijk niet beschikbaar.");
+      renderMapRoute(true);
+      return true;
+    } catch (error) {
+      console.warn("OVFlow Live 6.0 fallback naar legacy frontend", error);
+      return false;
+    }
+  }
+
   async function fetchVehicle() {
     const p = state.payload;
     if (!API_BASE || !p.tripId) {
@@ -1495,6 +1599,11 @@
     $("refreshButton")?.classList.add("is-loading");
     let routeError = null;
     try {
+      const live6Ready = await fetchLive6();
+      if (live6Ready) {
+        setText("lastUpdated", `Bijgewerkt ${new Intl.DateTimeFormat("nl-BE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date())}`);
+        return;
+      }
       if (!state.routes.length) {
         try {
           await fetchRoutes();
