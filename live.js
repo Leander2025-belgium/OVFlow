@@ -72,6 +72,73 @@
     return parseDate(value);
   }
 
+
+  function shiftEpochValue(value, seconds) {
+    if (value === null || value === undefined || value === "") return null;
+    const d = epochOrDate(value);
+    if (!d) return value;
+    return Math.round(d.getTime() / 1000) + Number(seconds || 0);
+  }
+
+  function live6StopData(stop, sequence) {
+    if (stop?.live6Data) return stop.live6Data;
+    const seq = Number(stop?.stopSequence ?? sequence);
+    return Number.isFinite(seq) ? (state.live6.bySequence.get(seq) || null) : null;
+  }
+
+  // Safety net for a stale/wrong scheduled run slot. If the vehicle is
+  // physically at the Live 6 current stop but that stop's clock is >20 minutes
+  // away from the GPS timestamp, align the whole stop pattern to the actual
+  // vehicle moment. Inter-stop differences remain untouched.
+  function normalizeLive6Clock(data) {
+    if (!data?.vehicle || data.vehicle.stale || !Array.isArray(data.stops) || !data.stops.length) return data;
+    const progress = data.progress || {};
+    const atStop = progress.progressStatus === "AT_STOP";
+    const arrivingAtNext = progress.progressStatus === "BETWEEN_STOPS" && Number(progress.distanceToNextStopMeters) <= 120;
+    if (!atStop && !arrivingAtNext) return data;
+
+    const seq = Number(atStop ? progress.currentStopSequence : progress.nextStopSequence);
+    const distance = Number(atStop ? progress.distanceToCurrentStopMeters : progress.distanceToNextStopMeters);
+    if (!Number.isFinite(seq) || !Number.isFinite(distance) || distance > 120) return data;
+
+    const current = data.stops.find(st => Number(st.stopSequence) === seq);
+    if (!current) return data;
+
+    const effective = current.realtimeDeparture || current.realtimeArrival || current.estimatedDeparture || current.estimatedArrival || current.scheduledDeparture || current.scheduledArrival || null;
+    const effectiveDate = epochOrDate(effective);
+    const vehicleDate = epochOrDate(data.vehicle.timestamp);
+    if (!effectiveDate || !vehicleDate) return data;
+
+    const deltaSeconds = Math.round((vehicleDate.getTime() - effectiveDate.getTime()) / 1000);
+    if (Math.abs(deltaSeconds) <= 20 * 60 || Math.abs(deltaSeconds) > 3 * 3600) return data;
+
+    console.warn("OVFlow Live 6.0: fout rit-uur gecorrigeerd", {
+      currentStopSequence: seq,
+      deltaSeconds,
+      serverTime: effectiveDate.toISOString(),
+      vehicleTime: vehicleDate.toISOString()
+    });
+
+    const shiftedStops = data.stops.map(st => ({
+      ...st,
+      scheduledArrival: shiftEpochValue(st.scheduledArrival, deltaSeconds),
+      scheduledDeparture: shiftEpochValue(st.scheduledDeparture, deltaSeconds),
+      realtimeArrival: shiftEpochValue(st.realtimeArrival, deltaSeconds),
+      realtimeDeparture: shiftEpochValue(st.realtimeDeparture, deltaSeconds),
+      estimatedArrival: shiftEpochValue(st.estimatedArrival, deltaSeconds),
+      estimatedDeparture: shiftEpochValue(st.estimatedDeparture, deltaSeconds),
+      clockCorrected: true,
+      clockCorrectionSeconds: deltaSeconds
+    }));
+
+    return {
+      ...data,
+      stops: shiftedStops,
+      clockCorrected: true,
+      clockCorrectionSeconds: deltaSeconds
+    };
+  }
+
   function tripInfoForStop(stop, sequence) {
     const sid = String(stop?.stopId || "").replace(/^gt:delijn:/i, "");
     const byId = sid ? state.tripTimes.byStopId.get(sid) || state.tripTimes.byStopId.get(`gt:delijn:${sid}`) : null;
@@ -196,7 +263,7 @@
   // in Je rit. Priority: exact GTFS-RT -> GTFS static + current delay -> GTFS
   // static -> De Lijn Core fallback -> preloaded/planner time -> unavailable.
   function bestTimeInfoForStop(stop, sequence, preloadTime = null) {
-    const live6 = state.live6.bySequence.get(Number(stop?.stopSequence || sequence));
+    const live6 = live6StopData(stop, sequence);
     if (live6) {
       const chosen = live6.realtimeDeparture || live6.realtimeArrival || live6.estimatedDeparture || live6.estimatedArrival || live6.scheduledDeparture || live6.scheduledArrival || null;
       const planned = live6.scheduledDeparture || live6.scheduledArrival || null;
@@ -943,6 +1010,24 @@
   function progressContext(route, reference = activeReference()) {
     const fallbackStart = Math.max(0, boardingIndex(route));
     if (!route?.stops?.length) return { startIndex: 0, nearestIndex: -1, pct: 0, passed: 0, source: "none" };
+
+
+    // Live 6.0 already resolved progress server-side from GTFS-RT + vehicle GPS.
+    // Use that exact result before any older geometric/planner heuristic.
+    if (route.directionCode === "LIVE6" && state.live6.data) {
+      let idx = route.stops.findIndex(stop => stop.live6State === "CURRENT");
+      if (idx < 0) idx = route.stops.findIndex(stop => stop.live6State === "NEXT");
+      if (idx >= 0) {
+        route._stableStartIndex = idx;
+        return {
+          startIndex: idx,
+          nearestIndex: idx,
+          pct: idx / Math.max(1, route.stops.length - 1) * 100,
+          passed: idx,
+          source: "live6-progress"
+        };
+      }
+    }
     if (!reference) {
       const timed = timetableProgressIndex(route);
       const idx = Math.max(fallbackStart, timed >= 0 ? timed : fallbackStart);
@@ -1187,8 +1272,8 @@
     const metersToStop = distanceToStop(route, i, ref);
     if (distanceEl) {
       const label = formatStopDistance(metersToStop);
-      distanceEl.textContent = label ? `${label} tot halte` : "";
-      distanceEl.classList.toggle("hidden", !label);
+      distanceEl.textContent = presence.atStop ? "Aan halte" : (label ? `${label} tot halte` : "");
+      distanceEl.classList.toggle("hidden", !presence.atStop && !label);
       distanceEl.classList.toggle("at-stop", Boolean(presence.atStop));
     }
 
@@ -1198,8 +1283,14 @@
     if (departure) {
       const d = epochOrDate(departure);
       const mins = d ? Math.round((d.getTime() - Date.now()) / 60000) : null;
-      const prefix = timeInfo.estimated ? "Geschat realtime" : timeInfo.realtime ? "Realtime" : "Gepland";
-      setText("departureMeta", mins !== null ? `${prefix} · ${mins <= 0 ? "nu" : `over ${mins} min`}` : prefix);
+      const prefix = timeInfo.estimated ? "Geschat" : timeInfo.realtime ? "Realtime" : "Gepland";
+      let relative = "";
+      if (mins !== null) {
+        if (Math.abs(mins) <= 1) relative = "nu";
+        else if (mins > 1) relative = `over ${mins} min`;
+        else relative = `${Math.abs(mins)} min geleden`;
+      }
+      setText("departureMeta", relative ? `${prefix} · ${relative}` : prefix);
     } else {
       setText("departureMeta", "Geen vertrektijd beschikbaar");
     }
@@ -1373,14 +1464,18 @@
       const delaySec = Number(timeInfo.delay || 0);
       const delayMin = Math.round(delaySec / 60);
       const delayLabel = delayMin !== 0 ? `${delayMin > 0 ? "+" : ""}${delayMin} min${timeInfo.estimated ? " · geschat" : ""}` : "";
-      const isCurrent = i === ctx.startIndex;
+      const live6State = String(stop.live6State || "");
+      const isCurrent = live6State === "CURRENT" || (live6State !== "NEXT" && i === ctx.startIndex);
+      const isNext = live6State === "NEXT";
       const presence = isCurrent ? stopPresence(route, i, activeReference()) : { atStop:false };
-      const subtitle = i === route.stops.length - 1 ? "Eindhalte" : (isCurrent ? (presence.atStop ? "Huidige halte" : "Volgende halte") : "");
+      const subtitle = i === route.stops.length - 1 ? "Eindhalte" : (isCurrent ? (presence.atStop ? "Huidige halte" : "Volgende halte") : (isNext ? "Volgende halte" : ""));
       const timingMeta = delayLabel ? `<small class="delay-mini ${delayMin > 0 ? "late" : "early"}">${esc(delayLabel)}</small>` : "";
-      const nowMeta = isCurrent && presence.atStop ? `<small class="now-label">Nu</small>` : "";
+      const rowDate = epochOrDate(timeInfo.time);
+      const nearNow = rowDate ? Math.abs(rowDate.getTime() - Date.now()) <= 90_000 : false;
+      const nowMeta = isCurrent && presence.atStop && nearNow ? `<small class="now-label">Nu</small>` : "";
       const rowDistance = isCurrent ? formatStopDistance(distanceToStop(route, i, activeReference())) : "";
       const stopMeta = [subtitle, rowDistance && !presence.atStop ? `${rowDistance} verder` : ""].filter(Boolean).join(" · ");
-      return `<div class="stop-row ${cls} ${isCurrent && !presence.atStop ? "upcoming-current" : ""}" data-stop-index="${i}" title="${esc(stop.name)}">
+      return `<div class="stop-row ${cls} ${isCurrent && !presence.atStop ? "upcoming-current" : ""} ${isNext ? "server-next" : ""}" data-stop-index="${i}" title="${esc(stop.name)}">
         <div class="stop-time">${esc(timeLabel)}${nowMeta}${timingMeta}</div>
         <div class="stop-track"><div class="stop-dot"></div></div>
         <div class="stop-main"><strong>${esc(stop.name)}</strong>${stopMeta ? `<small class="${isCurrent ? "current-label" : ""}">${esc(stopMeta)}</small>` : ""}</div>
@@ -1396,8 +1491,9 @@
     try {
       const url = new URL(`${API_BASE}/api/v6/delijn/live-trip`);
       url.searchParams.set("tripId", p.tripId);
-      const data = await getJson(url, 14000, 1);
-      if (!data?.ok || !Array.isArray(data?.stops) || !data.stops.length) return false;
+      const rawData = await getJson(url, 14000, 1);
+      if (!rawData?.ok || !Array.isArray(rawData?.stops) || !rawData.stops.length) return false;
+      const data = normalizeLive6Clock(rawData);
 
       state.live6.data = data;
       state.live6.loadedAt = Date.now();
@@ -1421,7 +1517,8 @@
           lon: num(st.lon),
           plannedTime: st.scheduledDeparture || st.scheduledArrival || null,
           live6State: st.progressState || "UPCOMING",
-          live6TimeSource: st.timeSource || "scheduled"
+          live6TimeSource: st.timeSource || "scheduled",
+          live6Data: st
         }))
       };
       state.routes = [route];

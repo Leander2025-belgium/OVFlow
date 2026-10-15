@@ -1041,3 +1041,8 @@ html,body{
   .stop-row{height:49px!important;min-height:49px!important}
   .stop-main strong{font-size:11.2px!important}.stop-main small{font-size:7.2px!important}.stop-time{font-size:10.2px!important}
 }
+
+/* OVFlow Live 6.2 — server-resolved next stop */
+.stop-row.server-next:not(.current){background:linear-gradient(90deg,rgba(232,245,255,.78) 0%,rgba(255,255,255,.58) 96%)!important}
+.stop-row.server-next:not(.current) .stop-dot{border-color:#0a8dff!important;box-shadow:0 0 0 4px rgba(10,141,255,.08)!important}
+.stop-row.server-next:not(.current) .stop-main strong{color:#0a3765!important;font-weight:850!important}
