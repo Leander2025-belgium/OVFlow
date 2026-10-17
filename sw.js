@@ -1,4 +1,4 @@
-const CACHE='ovflow-8-shell-v2';
+const CACHE='ovflow-8-mapfix-v3';
 const FILES=['./','./index.html','./styles.css','./app.js','./live.js','./live.html','./core-client.js','./icon.svg','./manifest.webmanifest','./vendor/leaflet.js','./vendor/leaflet.css'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));self.skipWaiting();});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('ovflow-8-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
