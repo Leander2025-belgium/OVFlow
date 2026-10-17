@@ -2,13 +2,12 @@
   "use strict";
 
   /*
-   * OVFlow 4.4 hybrid public-data client
+   * OVFlow 8.2 server-first data client
    *
-   * Important design rule: the browser must work on static hosting too.
-   * Therefore this client does NOT probe /api/* endpoints by default.
-   * Transitous/MOTIS is used directly for Belgian stop search, departures,
-   * nearby places and journey data. iRail stays available in planner.js for
-   * NMBS vehicle details.
+   * The browser talks to the OVFlow backend for search, nearby places,
+   * departures, route planning and live trip/GPS data. Provider API keys stay
+   * on the server. Direct Transitous calls remain only as an optional fallback
+   * when SERVER_ONLY is explicitly disabled.
    */
 
   const cfg = window.OVFLOW_CONFIG || {};
@@ -322,6 +321,137 @@
     return Boolean(API_BASE);
   }
 
+
+  function normalizeBackendPlace(item) {
+    if (!item) return null;
+    const lat = Number(item.lat ?? item.latitude);
+    const lon = Number(item.lon ?? item.longitude ?? item.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const mode = String(item.mode || (item.type === "station" ? "train" : "bus")).toLowerCase();
+    return {
+      ...item,
+      type: String(item.type || (mode === "train" ? "station" : "stop")).toLowerCase(),
+      mode,
+      id: String(item.id || ""),
+      transitousId: String(item.transitousId || ""),
+      name: String(item.name || "Onbekende halte"),
+      municipality: String(item.municipality || item.subtitle || ""),
+      operator: String(item.operator || "Openbaar vervoer"),
+      lat, lon, latitude: lat, longitude: lon,
+      raw: { ...item, country: "BE", source: "ovflow-api" }
+    };
+  }
+
+  function normalizeBackendDeparture(item, stopName = "") {
+    if (!item) return null;
+    const planned = iso(item.plannedDeparture || item.scheduledDeparture || item.realtimeDeparture);
+    const realtime = iso(item.realtimeDeparture || item.departure || planned);
+    if (!planned && !realtime) return null;
+    const plannedDate = parseDate(planned || realtime);
+    const realtimeDate = parseDate(realtime || planned);
+    const delayMinutes = Number.isFinite(Number(item.delayMinutes))
+      ? Number(item.delayMinutes)
+      : (plannedDate && realtimeDate ? Math.round((realtimeDate - plannedDate) / 60000) : 0);
+    return {
+      ...item,
+      id: String(item.id || item.tripId || `${stopName}-${realtime || planned || ""}`),
+      tripId: String(item.tripId || item.id || ""),
+      stopId: String(item.stopId || ""),
+      stopName: String(item.stopName || item.origin || stopName || ""),
+      mode: String(item.mode || "bus").toLowerCase(),
+      line: String(item.line || (item.mode === "train" ? "Trein" : "Bus")),
+      operator: String(item.operator || "Openbaar vervoer"),
+      destination: String(item.destination || "Onbekende richting"),
+      origin: String(item.origin || stopName || ""),
+      plannedDeparture: planned || realtime,
+      realtimeDeparture: realtime || planned,
+      delayMinutes,
+      platform: String(item.platform || item.bay || ""),
+      platformChanged: Boolean(item.platformChanged),
+      realtime: Boolean(item.realtime),
+      cancelled: Boolean(item.cancelled),
+      source: "ovflow-api"
+    };
+  }
+
+  async function backendSearchPlaces(query, max = 10) {
+    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
+    const url = new URL(`${API_BASE}/api/v4/search`);
+    url.searchParams.set("q", String(query || ""));
+    url.searchParams.set("max", String(clamp(max, 1, 20)));
+    const { response, data } = await cachedJson(url, 30_000, { timeout: 9000 });
+    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow zoeken HTTP ${response.status}`);
+    return asArray(data?.results).map(normalizeBackendPlace).filter(Boolean);
+  }
+
+  async function backendNearbyStops({ lat, lon, radius = 2500, max = 12 }) {
+    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
+    const url = new URL(`${API_BASE}/api/v4/stops/nearby`);
+    url.searchParams.set("lat", String(lat));
+    url.searchParams.set("lon", String(lon));
+    url.searchParams.set("radius", String(radius));
+    url.searchParams.set("max", String(max));
+    const { response, data } = await cachedJson(url, 20_000, { timeout: 9000 });
+    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow nearby HTTP ${response.status}`);
+    return asArray(data?.stops).map(normalizeBackendPlace).filter(Boolean);
+  }
+
+  async function backendNearby({ lat, lon, radius = 2500, maxPlaces = 6, maxDepartures = 3 }) {
+    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
+    const url = new URL(`${API_BASE}/api/v4/nearby`);
+    url.searchParams.set("lat", String(lat));
+    url.searchParams.set("lon", String(lon));
+    url.searchParams.set("radius", String(radius));
+    url.searchParams.set("maxPlaces", String(maxPlaces));
+    url.searchParams.set("maxDepartures", String(maxDepartures));
+    const { response, data } = await cachedJson(url, 12_000, { timeout: 12000 });
+    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow nearby HTTP ${response.status}`);
+    const places = asArray(data?.places).map(item => {
+      const place = normalizeBackendPlace(item);
+      if (!place) return null;
+      return { ...place, departures: asArray(item.departures).map(dep => normalizeBackendDeparture(dep, place.name)).filter(Boolean) };
+    }).filter(Boolean);
+    return { ...data, places, source: "OVFlow API" };
+  }
+
+  async function backendStopDepartures(stop, max = 8) {
+    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
+    const id = String(stop?.id || "");
+    const isRail = String(stop?.type || "").toLowerCase() === "station" || String(stop?.mode || "").toLowerCase() === "train" || /^BE\.NMBS/i.test(id) || /sncb/i.test(id);
+    let url;
+    if (isRail) {
+      let railId = id;
+      // Oude OVFlow builds gebruikten Transitous station-id's (bv. be-sncb_*).
+      // Resolve die eerst via de eigen backend naar de iRail/NMBS-id.
+      if (!/^BE\.NMBS/i.test(railId) && !/^https?:/i.test(railId)) {
+        const candidates = await backendSearchPlaces(stop?.name || "", 8);
+        const station = candidates.find(p => p.type === "station" || p.mode === "train");
+        if (station?.id) railId = station.id;
+      }
+      url = new URL(`${API_BASE}/api/v4/rail/liveboard`);
+      url.searchParams.set("id", railId);
+      url.searchParams.set("max", String(clamp(max, 1, 20)));
+    } else {
+      if (!/^\d{1,3}[-:/]\d{1,8}$/.test(id)) throw new Error("Deze halte heeft geen geldige OVFlow-haltecode.");
+      url = new URL(`${API_BASE}/api/v4/stops/${encodeURIComponent(id)}/departures`);
+      url.searchParams.set("max", String(clamp(max, 1, 20)));
+    }
+    const { response, data } = await cachedJson(url, 8_000, { timeout: 10000 });
+    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow vertrekken HTTP ${response.status}`);
+    return { departures: asArray(data?.departures).map(dep => normalizeBackendDeparture(dep, stop?.name || data?.station?.name || "")).filter(Boolean), source: "OVFlow API" };
+  }
+
+  async function planJourney(params = {}, options = {}) {
+    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
+    const url = new URL(`${API_BASE}/api/v4/journeys`);
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+    });
+    const { response, data } = await fetchJson(url, { timeout: options.timeout || 25000 });
+    if (!response.ok) throw new Error(data?.message || `OVFlow routeplanner HTTP ${response.status}`);
+    return data || {};
+  }
+
   async function backendLiveTrip(tripId, line = "", options = {}) {
     if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
     const id = String(tripId || "").trim();
@@ -361,13 +491,18 @@
   async function transitousTrip(tripId, options = {}) {
     const id = String(tripId || "").trim();
     if (!id) throw new Error("Deze rit heeft geen trip-id.");
+    if (API_BASE) {
+      try {
+        const data = await backendLiveTrip(id, options.line || "", options);
+        if (data?.trip) return data.trip;
+      } catch (error) {
+        if (SERVER_ONLY) throw error;
+        console.warn("OVFlow live backend fallback:", error?.message || error);
+      }
+    }
     const url = new URL(`${TRANSITOUS_BASE}/api/v6/trip`);
     url.searchParams.set("tripId", id);
     url.searchParams.set("withScheduledSkippedStops", "true");
-    // Live Trip needs the stop sequence first. The full encoded route geometry
-    // can be very large for bus routes and used to block Safari's main thread
-    // while decoding/projecting it. MOTIS keeps the stops when detailedLegs is
-    // false, so OVFlow draws a lightweight stop-to-stop route instead.
     url.searchParams.set("detailedLegs", String(Boolean(options.detailedLegs ?? false)));
     url.searchParams.set("joinInterlinedLegs", "false");
     const timeout = Math.max(2500, Math.min(12000, Number(options.timeout || 6500)));
@@ -486,6 +621,14 @@
       stop = { entity: String(stopOrEntity || ""), stop: String(maybeStopNumber || "") };
     }
 
+    if (API_BASE) {
+      try { return await backendStopDepartures(stop, max); }
+      catch (error) {
+        if (SERVER_ONLY) throw error;
+        console.warn("OVFlow departures backend fallback:", error?.message || error);
+      }
+    }
+
     const stopId = String(stop.transitousId || stop.id || "");
     const lat = Number(stop.lat ?? stop.latitude);
     const lon = Number(stop.lon ?? stop.longitude ?? stop.lng);
@@ -508,6 +651,14 @@
     const longitude = Number(lon);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error("Ongeldige locatie.");
 
+    if (API_BASE) {
+      try { return await backendNearbyStops({ lat: latitude, lon: longitude, radius, max }); }
+      catch (error) {
+        if (SERVER_ONLY) throw error;
+        console.warn("OVFlow nearby-stops backend fallback:", error?.message || error);
+      }
+    }
+
     const candidates = await transitousReverseStops(latitude, longitude, Math.min(Math.max(max * 2, 8), 20));
     return candidates
       .map(stop => {
@@ -523,6 +674,14 @@
     const latitude = Number(lat);
     const longitude = Number(lon);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error("Ongeldige locatie.");
+
+    if (API_BASE) {
+      try { return await backendNearby({ lat: latitude, lon: longitude, radius, maxPlaces, maxDepartures }); }
+      catch (error) {
+        if (SERVER_ONLY) throw error;
+        console.warn("OVFlow nearby backend fallback:", error?.message || error);
+      }
+    }
 
     // Eén compacte MOTIS-stoptimes call is de normale route. Dit is veel
     // zuiniger dan voor iedere halte een aparte request te doen.
@@ -622,28 +781,32 @@
   async function searchPlaces(query, max = 10) {
     const q = String(query || "").trim();
     if (q.length < 2) return [];
+    if (API_BASE) {
+      try { return await backendSearchPlaces(q, max); }
+      catch (error) {
+        if (SERVER_ONLY) throw error;
+        console.warn("OVFlow search backend fallback:", error?.message || error);
+      }
+    }
     return transitousGeocode(q, max);
   }
 
   async function detect() {
-    return {
-      checked: true,
-      v4: false,
-      legacy: false,
-      public: true,
-      source: API_BASE ? "OVFlow backend + Transitous / MOTIS" : "Transitous / MOTIS"
-    };
+    if (!API_BASE) return { checked: true, v4: false, legacy: false, public: true, source: "Transitous / MOTIS" };
+    try {
+      const status = await health();
+      return { checked: true, v4: Boolean(status.ok), legacy: false, public: false, source: status.ok ? "OVFlow API" : "OVFlow API niet bereikbaar", version: status.version || "" };
+    } catch {
+      return { checked: true, v4: false, legacy: false, public: false, source: "OVFlow API niet bereikbaar" };
+    }
   }
 
   async function health() {
-    // Do not generate a request every minute only to paint a green status dot.
-    // Real feature calls surface their own network errors. navigator.onLine is
-    // enough for this lightweight UI indicator and avoids 404 spam completely.
-    return {
-      ok: navigator.onLine !== false,
-      mode: API_BASE ? "hybrid" : "public",
-      source: API_BASE ? "OVFlow backend + Transitous / MOTIS" : "Transitous / MOTIS"
-    };
+    if (!API_BASE) return { ok: navigator.onLine !== false, mode: "public", source: "Transitous / MOTIS" };
+    const url = new URL(`${API_BASE}/api/health`);
+    const { response, data } = await cachedJson(url, 30_000, { timeout: 5000 });
+    if (!response.ok) return { ok: false, mode: "server", source: "OVFlow API", status: response.status };
+    return { ...(data || {}), ok: data?.ok !== false, mode: "server", source: "OVFlow API" };
   }
 
   window.OVFlowCore = {
@@ -661,6 +824,11 @@
     backendLiveTrip,
     backendDelijnLineStops,
     backendVehiclePosition,
+    planJourney,
+    backendSearchPlaces,
+    backendNearby,
+    backendNearbyStops,
+    backendStopDepartures,
     hasBackend
   };
 })();

@@ -1,16 +1,18 @@
-window.OVFLOW_VERSION = "8.2.2-mapfix";
+window.OVFLOW_VERSION = "8.3.0-server-only";
 console.info("OVFlow frontend", window.OVFLOW_VERSION);
 window.OVFLOW_CONFIG = {
   API_BASE: "https://ovflow-api.wheaterflow.be",
-  // Publieke OVFlow-backend via Cloudflare Tunnel. De De Lijn keys blijven
-  // uitsluitend op de server en komen nooit in de browser terecht.
+  SERVER_ONLY: true,
   AUTO_REFRESH_MS: 15000,
 
-  // OVFlow 4.4 keeps static fallbacks, but exact De Lijn vehicle GPS uses the optional backend.
+  // Reisdata, live vertrektijden, zoeken, haltes, routeplanning en GPS
+  // lopen via de eigen OVFlow-backend. API-sleutels blijven op de server.
   TRANSITOUS_BASE: "https://api.transitous.org",
 
-  // Public De Lijn geographic stop catalogue (used by the optional map/legacy stop screen).
-  HALTES_WFS_URL: "https://geo.api.vlaanderen.be/Haltes/wfs",
-  HALTES_WFS_TYPENAME: "Haltes:Halte",
-  HALTES_BATCH_SIZE: 10000
+  // Alleen de achtergrondtegels komen van OSM. Alle OV-data die op de kaart
+  // wordt getoond komt via API_BASE. Vervang MAP_TILE_URL later eenvoudig
+  // door je eigen tile-provider als je daarvoor een aparte kaart-API hebt.
+  MAP_TILE_URL: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  MAP_TILE_ATTRIBUTION: "© OpenStreetMap",
+  MAP_MAX_ZOOM: 19
 };
