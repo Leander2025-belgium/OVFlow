@@ -117,3 +117,80 @@ body[data-ov-view="more"] #savedSection{padding:17px!important}.saved-page-head 
   .poster-bottom-nav{bottom:22px!important;border-radius:23px!important;width:532px!important}
 }
 @media (max-width:390px){.app{padding-left:10px;padding-right:10px}.poster-greeting h1{font-size:34px}.poster-city-card{height:84px}.poster-service-grid button{padding:10px;gap:8px}.service-icon{width:34px;height:34px}.poster-wordmark strong{font-size:28px}.poster-shortcuts button{min-height:65px}}
+
+
+/* OVFlow 7.1 — vervoerskeuze routeplanner */
+.planner-transport{
+  margin-top:10px;
+  padding:10px;
+  border:1px solid #e7eef5;
+  border-radius:18px;
+  background:linear-gradient(180deg,#fbfdff,#f6faff);
+}
+.planner-transport-head{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:10px;
+  padding:0 2px 8px;
+}
+.planner-transport-head div{display:grid;gap:1px}
+.planner-transport-head strong{font-size:11px;color:#173250;letter-spacing:-.1px}
+.planner-transport-head span{font-size:9px;color:#73869d;font-weight:650}
+.planner-transport-head small{font-size:8px;color:#9aa8b9;white-space:nowrap}
+.planner-transport-modes{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:6px;
+}
+.transport-choice{
+  min-width:0;
+  min-height:61px;
+  padding:6px 3px 7px;
+  border:1px solid #e5ecf3;
+  border-radius:15px;
+  background:#fff;
+  color:#60738b;
+  display:grid;
+  place-items:center;
+  align-content:center;
+  gap:5px;
+  cursor:pointer;
+  box-shadow:0 3px 9px rgba(48,82,120,.025);
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .15s ease,border-color .15s ease,background .15s ease,box-shadow .15s ease;
+}
+.transport-choice:active{transform:scale(.97)}
+.transport-choice b{font-size:9px;line-height:1;font-weight:800;white-space:nowrap}
+.transport-choice-icon{
+  width:31px;
+  height:31px;
+  border-radius:10px;
+  display:grid;
+  place-items:center;
+  color:#fff;
+  box-shadow:0 4px 10px rgba(23,72,120,.10);
+  font-size:15px;
+}
+.transport-choice-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.transport-choice-icon.all{background:linear-gradient(145deg,#66a8ff,#377ff5)}
+.transport-choice-icon.train{background:linear-gradient(145deg,#177cf5,#075ece)}
+.transport-choice-icon.tram{background:linear-gradient(145deg,#ffd725,#f7b800);color:#14233b}
+.transport-choice-icon.bus{background:linear-gradient(145deg,#ffd31d,#f1b900);color:#14233b}
+.transport-choice-icon.metro{background:linear-gradient(145deg,#ff665d,#e83c43)}
+.transport-choice.active{
+  border-color:#8fc2ff;
+  background:#eef6ff;
+  color:#0f68ce;
+  box-shadow:0 0 0 2px rgba(22,119,255,.08),0 6px 15px rgba(22,119,255,.07);
+}
+.transport-choice.active.all{background:linear-gradient(145deg,#e9f4ff,#f5faff)}
+.transport-choice:focus-visible{outline:3px solid rgba(22,119,255,.18);outline-offset:2px}
+@media(max-width:390px){
+  .planner-transport{padding:8px}
+  .planner-transport-modes{gap:4px}
+  .transport-choice{min-height:56px;border-radius:13px}
+  .transport-choice-icon{width:28px;height:28px;border-radius:9px}
+  .transport-choice b{font-size:8px}
+  .planner-transport-head small{display:none}
+}

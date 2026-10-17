@@ -9,8 +9,8 @@
 <meta content="yes" name="mobile-web-app-capable"/>
 <meta content="default" name="apple-mobile-web-app-status-bar-style"/>
 <title>OVFlow — Heel België beweegt met jou</title>
-<link href="style.css?v=7.0.0" rel="stylesheet"/>
-<link href="ovflow-poster.css?v=7.0.0" rel="stylesheet"/>
+<link href="style.css?v=7.1.0" rel="stylesheet"/>
+<link href="ovflow-poster.css?v=7.1.0" rel="stylesheet"/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2716%27 fill=%27%230b76ff%27/%3E%3Cpath d=%27M15 38c8-18 18-18 34-12%27 fill=%27none%27 stroke=%27white%27 stroke-width=%276%27 stroke-linecap=%27round%27/%3E%3Ccircle cx=%2748%27 cy=%2726%27 r=%275%27 fill=%27white%27/%3E%3C/svg%3E"/>
 <link rel="manifest" href="manifest.webmanifest"/>
 <link rel="apple-touch-icon" href="ovflow-icon-192.png"/>
@@ -123,6 +123,32 @@
 <button aria-label="Wis bestemming" class="journey-clear" id="plannerClearTo" type="button">×</button>
 <div class="planner-suggestions hidden" id="plannerToResults"></div>
 </label>
+</div>
+<div class="planner-transport" aria-label="Kies vervoersmiddelen">
+  <div class="planner-transport-head">
+    <div>
+      <strong>Vervoer</strong>
+      <span id="plannerTransportSummary">Alle vervoersmiddelen</span>
+    </div>
+    <small>Meerdere keuzes mogelijk</small>
+  </div>
+  <div class="planner-transport-modes" id="plannerTransportModes" role="group" aria-label="Vervoersmiddelen">
+    <button class="transport-choice active all" data-transport="ALL" type="button" aria-pressed="true">
+      <span class="transport-choice-icon all">✦</span><b>Alle</b>
+    </button>
+    <button class="transport-choice" data-transport="TRAIN" type="button" aria-pressed="false">
+      <span class="transport-choice-icon train"><svg viewBox="0 0 24 24"><path d="M7 17V7c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 8h6M8 12h8M7 17h10M9 17l-2 3M15 17l2 3"></path></svg></span><b>Trein</b>
+    </button>
+    <button class="transport-choice" data-transport="TRAM" type="button" aria-pressed="false">
+      <span class="transport-choice-icon tram"><svg viewBox="0 0 24 24"><path d="M8 4h8M12 4V2M7 18V8c0-2 2-3 5-3s5 1 5 3v10"></path><path d="M9 9h6M8 13h8M9 18l-2 3M15 18l2 3"></path></svg></span><b>Tram</b>
+    </button>
+    <button class="transport-choice" data-transport="BUS" type="button" aria-pressed="false">
+      <span class="transport-choice-icon bus"><svg viewBox="0 0 24 24"><path d="M6 17V7c0-2 2-3 6-3s6 1 6 3v10"></path><path d="M8 8h8M7 12h10M8 17v2M16 17v2"></path></svg></span><b>Bus</b>
+    </button>
+    <button class="transport-choice" data-transport="METRO" type="button" aria-pressed="false">
+      <span class="transport-choice-icon metro"><svg viewBox="0 0 24 24"><path d="M7 18V7c0-2 2-3 5-3s5 1 5 3v11"></path><path d="M9 9h6M8 13h8M9 18l-2 3M15 18l2 3"></path></svg></span><b>Metro</b>
+    </button>
+  </div>
 </div>
 <div class="journey-options">
 <div class="planner-segmented" id="plannerMode">
@@ -629,13 +655,13 @@
 <div class="security-warning"><span>i</span><p><strong>OVFlow.</strong> Zoeken, vertrekken en routes hebben publieke fallbacks. Voor exacte De Lijn voertuig-GPS gebruikt OVFlow optioneel je eigen backend.</p></div>
 </aside>
 <div class="toast" id="toast"></div>
-<script src="config.js?v=7.0.0"></script>
-<script src="live-link.js?v=7.0.0"></script>
-<script src="core-client.js?v=7.0.0"></script>
-<script src="app.js?v=7.0.0"></script>
-<script src="planner.js?v=7.0.0"></script>
-<script src="quick-live.js?v=7.0.0"></script>
-<script src="ui.js?v=7.0.0"></script>
-<script src="ovflow-poster.js?v=7.0.0"></script>
+<script src="config.js?v=7.1.0"></script>
+<script src="live-link.js?v=7.1.0"></script>
+<script src="core-client.js?v=7.1.0"></script>
+<script src="app.js?v=7.1.0"></script>
+<script src="planner.js?v=7.1.0"></script>
+<script src="quick-live.js?v=7.1.0"></script>
+<script src="ui.js?v=7.1.0"></script>
+<script src="ovflow-poster.js?v=7.1.0"></script>
 </body>
 </html>

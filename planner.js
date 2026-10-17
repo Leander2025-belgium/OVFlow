@@ -18,6 +18,7 @@
     to: null,
     mode: "now",
     pref: "fastest",
+    transportModes: ["ALL"],
     geolocationOrigin: false,
     loading: false,
     lastQuery: null,
@@ -295,6 +296,98 @@
     return dt.toISOString();
   }
 
+  const TRANSPORT_MODE_META = {
+    ALL: { label: "Alle vervoersmiddelen", api: ["TRANSIT"] },
+    TRAIN: { label: "Trein", api: ["RAIL"] },
+    TRAM: { label: "Tram", api: ["TRAM"] },
+    BUS: { label: "Bus", api: ["BUS"] },
+    METRO: { label: "Metro", api: ["SUBWAY", "METRO"] }
+  };
+
+  function selectedTransportModes() {
+    const modes = Array.isArray(planner.transportModes) ? planner.transportModes : ["ALL"];
+    if (!modes.length || modes.includes("ALL")) return ["ALL"];
+    return modes.filter(mode => TRANSPORT_MODE_META[mode]);
+  }
+
+  function transitModesParam() {
+    const modes = selectedTransportModes();
+    if (modes.includes("ALL")) return "TRANSIT";
+    return [...new Set(modes.flatMap(mode => TRANSPORT_MODE_META[mode]?.api || []))].join(",");
+  }
+
+  function transportModeSummary() {
+    const modes = selectedTransportModes();
+    if (modes.includes("ALL")) return "Alle vervoersmiddelen";
+    return modes.map(mode => TRANSPORT_MODE_META[mode]?.label || mode).join(" + ");
+  }
+
+  function modeAllowedBySelection(mode) {
+    const modes = selectedTransportModes();
+    if (modes.includes("ALL")) return true;
+    const value = String(mode || "").toUpperCase();
+    return modes.some(selected => {
+      if (selected === "TRAIN") return value === "RAIL" || value === "SUBURBAN" || value.includes("RAIL") || value === "LONG_DISTANCE" || value === "HIGHSPEED_RAIL";
+      if (selected === "TRAM") return value === "TRAM";
+      if (selected === "BUS") return value === "BUS" || value === "COACH";
+      if (selected === "METRO") return value === "SUBWAY" || value === "METRO";
+      return false;
+    });
+  }
+
+  function itineraryMatchesTransportSelection(itinerary) {
+    const transitLegs = itinerary?.legs?.filter(leg => leg.type === "transit") || [];
+    if (!transitLegs.length) return false;
+    return transitLegs.every(leg => modeAllowedBySelection(leg.mode));
+  }
+
+  function updateTransportModeUI() {
+    const selected = selectedTransportModes();
+    planner.transportModes = selected;
+    const container = $("#plannerTransportModes");
+    if (container) {
+      container.querySelectorAll("[data-transport]").forEach(button => {
+        const active = selected.includes(button.dataset.transport);
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+    const summary = $("#plannerTransportSummary");
+    if (summary) summary.textContent = transportModeSummary();
+    const hint = document.querySelector("#plannerGo .journey-plan-copy small");
+    if (hint) {
+      hint.textContent = selected.includes("ALL")
+        ? "Alle vervoersmiddelen · actuele routes"
+        : `${transportModeSummary()} · actuele routes`;
+    }
+    try { localStorage.setItem("ovflow_planner_transport_modes", JSON.stringify(selected)); } catch {}
+  }
+
+  function toggleTransportMode(mode) {
+    if (!TRANSPORT_MODE_META[mode]) return;
+    if (mode === "ALL") {
+      planner.transportModes = ["ALL"];
+    } else {
+      let selected = selectedTransportModes().filter(item => item !== "ALL");
+      if (selected.includes(mode)) selected = selected.filter(item => item !== mode);
+      else selected.push(mode);
+      planner.transportModes = selected.length ? selected : ["ALL"];
+    }
+    updateTransportModeUI();
+    $("#plannerResults")?.classList.add("hidden");
+    bridge.clearPlannerRouteOnMap?.();
+  }
+
+  function restoreTransportModes() {
+    try {
+      const raw = JSON.parse(localStorage.getItem("ovflow_planner_transport_modes") || "null");
+      if (Array.isArray(raw) && raw.some(mode => TRANSPORT_MODE_META[mode])) {
+        planner.transportModes = raw.filter(mode => TRANSPORT_MODE_META[mode]);
+      }
+    } catch {}
+    updateTransportModeUI();
+  }
+
   function buildRequest(dt) {
     const fromLat = Number(planner.from.routeLat ?? planner.from.lat);
     const fromLon = Number(planner.from.routeLon ?? planner.from.lon);
@@ -306,7 +399,7 @@
     url.searchParams.set("toPlace", `${toLat},${toLon}`);
     url.searchParams.set("time", apiDateTime(dt));
     url.searchParams.set("arriveBy", planner.mode === "arrive" ? "true" : "false");
-    url.searchParams.set("transitModes", "TRANSIT");
+    url.searchParams.set("transitModes", transitModesParam());
     url.searchParams.set("directModes", "WALK");
     url.searchParams.set("maxTransfers", planner.pref === "fewest" ? "2" : "4");
     url.searchParams.set("minTransferTime", "2");
@@ -2686,7 +2779,7 @@
     const dt = validate();
     if (!dt) return;
 
-    planner.lastQuery = { dt };
+    planner.lastQuery = { dt, transportModes: selectedTransportModes() };
     $("#plannerError").classList.add("hidden");
     $("#plannerResults").classList.add("hidden");
     bridge.clearPlannerRouteOnMap?.();
@@ -2749,10 +2842,13 @@
         throw new Error("Er werd voor dit tijdstip geen OV-route gevonden.");
       }
 
-      const normalized = sortItineraries(raw.map(normalizeItinerary));
+      const normalized = sortItineraries(
+        raw.map(normalizeItinerary).filter(itineraryMatchesTransportSelection)
+      );
 
       if (!normalized.length) {
-        throw new Error("Er werd geen bruikbaar reisadvies gevonden.");
+        const selection = transportModeSummary();
+        throw new Error(`Geen route gevonden met ${selection.toLowerCase()}. Kies eventueel meer vervoersmiddelen.`);
       }
 
       renderResults(normalized);
@@ -2829,6 +2925,12 @@
     }
   });
 
+  $("#plannerTransportModes")?.addEventListener("click", e => {
+    const button = e.target.closest("button[data-transport]");
+    if (!button) return;
+    toggleTransportMode(button.dataset.transport);
+  });
+
   $("#plannerMode").addEventListener("click", e => {
     const button = e.target.closest("button[data-mode]");
     if (!button) return;
@@ -2884,5 +2986,6 @@
 
   createSearch("#plannerFrom", "#plannerFromResults", "from");
   createSearch("#plannerTo", "#plannerToResults", "to");
+  restoreTransportModes();
   setDefaultDateTime();
 })();

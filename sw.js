@@ -1,4 +1,4 @@
-const CACHE = "ovflow-static-7.0.0-reference";
+const CACHE = "ovflow-static-7.1.0-transport-modes";
 const SHELL = [
   "./", "./index.html", "./live.html", "./style.css", "./live.css", "./config.js", "./live-link.js", "./live.js", "./core-client.js", "./app.js",
   "./planner.js", "./quick-live.js", "./ui.js", "./ovflow-poster.css", "./ovflow-poster.js", "./manifest.webmanifest", "./ovflow-icon-192.png", "./ovflow-icon-512.png"
