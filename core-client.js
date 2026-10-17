@@ -355,7 +355,7 @@
     return {
       ...item,
       id: String(item.id || item.tripId || `${stopName}-${realtime || planned || ""}`),
-      tripId: String(item.tripId || item.id || ""),
+      tripId: String(item.tripId || ""),
       stopId: String(item.stopId || ""),
       stopName: String(item.stopName || item.origin || stopName || ""),
       mode: String(item.mode || "bus").toLowerCase(),

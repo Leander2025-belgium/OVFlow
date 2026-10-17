@@ -1,8 +1,8 @@
-window.OVFLOW_VERSION = "8.3.1-exact-route";
+window.OVFLOW_VERSION = "8.3.2-server-first-recovery";
 console.info("OVFlow frontend", window.OVFLOW_VERSION);
 window.OVFLOW_CONFIG = {
   API_BASE: "https://ovflow-api.wheaterflow.be",
-  SERVER_ONLY: true,
+  SERVER_ONLY: false,
   AUTO_REFRESH_MS: 15000,
 
   // Reisdata, live vertrektijden, zoeken, haltes, routeplanning en GPS
