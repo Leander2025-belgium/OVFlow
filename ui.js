@@ -16,7 +16,8 @@
     trips: ["#journeyPlanner", "#quickLivePanel", "#liveTripSession"],
     stops: ["section.hero", ".stats-grid", ".departures-panel"],
     map: ["#mapSection"],
-    saved: ["#savedSection"]
+    tickets: ["#ticketsSection"],
+    more: ["#savedSection"]
   };
 
   const legacy = [
@@ -46,7 +47,7 @@
     if (!options.keepScroll) window.scrollTo({ top: 0, behavior: "smooth" });
 
     if (view === "map") setTimeout(() => window.dispatchEvent(new Event("resize")), 180);
-    if (view === "saved") renderSaved();
+    if (view === "more") renderSaved();
     if (options.focusDestination && view === "trips") {
       setTimeout(() => $("#plannerTo")?.focus(), 180);
     }
@@ -62,8 +63,13 @@
   });
 
   $("#homeDestinationSearch")?.addEventListener("click", () => setView("trips", { focusDestination: true }));
-  $("#homeOpenSaved")?.addEventListener("click", () => setView("saved"));
+  $("#homeOpenSaved")?.addEventListener("click", () => setView("more"));
   $("#homeAddFavorite")?.addEventListener("click", () => setView("trips", { focusDestination: true }));
+  $("#homeLiveDepartures")?.addEventListener("click", () => setView("stops"));
+  $("#homePlanRoute")?.addEventListener("click", () => setView("trips", { focusDestination: true }));
+  $("#homeTickets")?.addEventListener("click", () => setView("tickets"));
+  $("#homeAlerts")?.addEventListener("click", () => setView("more"));
+  $$('[data-go-home]').forEach(btn => btn.addEventListener('click', () => setView('home')));
   $(".brand")?.addEventListener("click", event => { event.preventDefault(); setView("home"); });
 
   function formatDistance(meters) {
