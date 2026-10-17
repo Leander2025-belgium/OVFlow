@@ -1,13 +1,1 @@
-{
-  "name": "OVFlow — Heel België beweegt met jou",
-  "short_name": "OVFlow",
-  "description": "Trein, tram, bus en metro in één Belgische OV-app.",
-  "start_url": "./#home",
-  "display": "standalone",
-  "background_color": "#F4F9FF",
-  "theme_color": "#F4F9FF",
-  "icons": [
-    {"src":"ovflow-icon-192.png","sizes":"192x192","type":"image/png"},
-    {"src":"ovflow-icon-512.png","sizes":"512x512","type":"image/png"}
-  ]
-}
+{"name":"OVFlow — jouw reisgenoot","short_name":"OVFlow","start_url":"./","display":"standalone","background_color":"#f7f8f3","theme_color":"#134b40","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
