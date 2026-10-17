@@ -1,4 +1,4 @@
-window.OVFLOW_VERSION = "8.3.0-server-only";
+window.OVFLOW_VERSION = "8.3.1-exact-route";
 console.info("OVFlow frontend", window.OVFLOW_VERSION);
 window.OVFLOW_CONFIG = {
   API_BASE: "https://ovflow-api.wheaterflow.be",
