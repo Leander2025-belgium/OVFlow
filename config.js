@@ -1,4 +1,4 @@
-window.OVFLOW_VERSION = "8.3.3-verified-live-routes";
+window.OVFLOW_VERSION = "8.3.4-map-departures";
 console.info("OVFlow frontend", window.OVFLOW_VERSION);
 window.OVFLOW_CONFIG = {
   API_BASE: "https://ovflow-api.wheaterflow.be",

@@ -77,10 +77,123 @@ function initMap(){if(!window.L){$('#map').innerHTML='<div class="empty">Kaart n
  tiles.on('tileerror',()=>{if(!mapTilesFailed){mapTilesFailed=true;$('#nearby-caption').textContent='Kaarttegels laden niet. Haltes blijven selecteerbaar.';}});
  markers=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);drawMarkers(station,[station]);
 }
-function drawMarkers(center,stops){if(!map)return;markers.clearLayers();const list=[center,...stops.filter(s=>s.id!==center.id)];list.forEach((p,i)=>{const type=p.mode==='train'?'train':'bus';const marker=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'map-marker '+type+(i===0?' selected':''),html:icon(type),iconSize:i===0?[40,40]:[32,32],iconAnchor:[16,16]}),title:p.name,zIndexOffset:i===0?1000:0});marker.bindTooltip(esc(p.name),{direction:'top',offset:[0,-18]});marker.on('click',()=>{setBoard(p);openStop(p);});marker.addTo(markers);});map.setView([center.lat,center.lon],14);}
+function drawMarkers(center,stops){if(!map)return;markers.clearLayers();const list=[center,...stops.filter(s=>s.id!==center.id)];list.forEach((p,i)=>{const type=p.mode==='train'?'train':'bus';const marker=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'map-marker '+type+(i===0?' selected':''),html:icon(type),iconSize:i===0?[40,40]:[32,32],iconAnchor:[16,16]}),title:p.name,zIndexOffset:i===0?1000:0});marker.bindTooltip(esc(p.name),{direction:'top',offset:[0,-18]});marker.on('click',()=>{openStop(p);});marker.addTo(markers);});map.setView([center.lat,center.lon],14);}
 async function showNearby(p){routeLayer?.clearLayers();const seq=++nearbySeq;$('#map-title').textContent=p.name==='Mijn locatie'?'Rondom jou':`Rondom ${p.municipality||p.name}`;drawMarkers(p,[p]);try{const near=await OVFlowCore.nearbyStops({lat:p.lat,lon:p.lon,max:10,radius:2500});if(seq!==nearbySeq)return;state.nearby=near;drawMarkers(p,near);$('#nearby-caption').textContent=`${near.length} haltes en stations rondom dit vertrekpunt.`;}catch{if(seq!==nearbySeq)return;state.nearby=[];$('#nearby-caption').textContent='Haltes ophalen lukt even niet. Probeer opnieuw.';}}
-function openStop(p){openDialog(p.name,`<p>${esc(p.municipality||'Halte of station')}</p><div class="dialog-actions"><button id="stop-board" class="primary">Bekijk vertrekken</button><button id="stop-from" class="outline">Vertrek hier</button></div><div class="dialog-actions"><button id="stop-to" class="outline">Reis hiernaartoe ↗</button></div>`);$('#stop-board').onclick=()=>{$('#dialog').close();setView('departures');};$('#stop-from').onclick=()=>{setPlace('from',p);$('#dialog').close();setView('plan');};$('#stop-to').onclick=()=>{setPlace('to',p);$('#dialog').close();setView('plan');};}
-$('#nearby').onclick=async()=>{if(!state.nearby.length)await showNearby(state.from||state.board);openDialog('Haltes in de buurt',state.nearby.length?`<div class="dialog-list">${state.nearby.map((p,i)=>`<button data-near="${i}"><span><strong>${esc(p.name)}</strong><small>${p.distanceMeters} m van het vertrekpunt</small></span>↗</button>`).join('')}</div>`:'<p>Geen haltes gevonden. Zoek een halte via de reisplanner.</p>');$$('[data-near]').forEach(b=>b.onclick=()=>{const p=state.nearby[+b.dataset.near];setBoard(p);openStop(p);});};
+
+function openStop(p) {
+  openDialog(p.name, `
+    <p>${esc(p.municipality || 'Halte of station')}</p>
+    <div id="stop-preview" class="loading">
+      Vertrektijden ophalen…
+    </div>
+    <div class="dialog-actions">
+      <button id="stop-board" class="primary">
+        Bekijk alle vertrekken
+      </button>
+      <button id="stop-from" class="outline">
+        Vertrek hier
+      </button>
+    </div>
+    <div class="dialog-actions">
+      <button id="stop-to" class="outline">
+        Reis hiernaartoe ↗
+      </button>
+    </div>
+  `);
+
+  const preview = $('#stop-preview');
+
+  $('#stop-board').onclick = () => {
+    $('#dialog').close();
+    state.filter = 'all';
+    $$('[data-filter]').forEach(b =>
+      b.classList.toggle('active', b.dataset.filter === 'all')
+    );
+    setView('departures');
+    setBoard(p);
+  };
+
+  $('#stop-from').onclick = () => {
+    setPlace('from', p);
+    $('#dialog').close();
+    setView('plan');
+  };
+
+  $('#stop-to').onclick = () => {
+    setPlace('to', p);
+    $('#dialog').close();
+    setView('plan');
+  };
+
+  OVFlowCore.stopDepartures(p, 12).then(result => {
+    if (!preview.isConnected || !$('#dialog').open) return;
+
+    const rows = (result.departures || [])
+      .filter(d => {
+        const time = Date.parse(
+          d.realtimeDeparture || d.plannedDeparture || ''
+        );
+        return Number.isFinite(time) &&
+          time >= Date.now() - 60000;
+      })
+      .sort((a, b) =>
+        Date.parse(a.realtimeDeparture || a.plannedDeparture) -
+        Date.parse(b.realtimeDeparture || b.plannedDeparture)
+      )
+      .slice(0, 8);
+
+    preview.className = '';
+
+    if (!rows.length) {
+      preview.innerHTML =
+        '<p>Geen komende vertrekken gevonden voor deze halte.</p>';
+      return;
+    }
+
+    preview.innerHTML = `
+      <h3>Volgende vertrekken</h3>
+      <div class="dialog-list">
+        ${rows.map((d, i) => `
+          <button type="button" data-stop-preview="${i}">
+            <span>
+              <strong>
+                ${esc(d.line)} · ${esc(d.destination)}
+              </strong>
+              <small>
+                ${esc(d.operator)}
+                ${d.platform ? ' · Spoor ' + esc(d.platform) : ''}
+                ${d.delayMinutes > 0
+                  ? ' · +' + d.delayMinutes + ' min'
+                  : ''}
+                ${d.cancelled ? ' · Geannuleerd' : ''}
+              </small>
+            </span>
+            <strong>
+              ${fmt(d.realtimeDeparture || d.plannedDeparture)}
+            </strong>
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    $$('[data-stop-preview]', preview).forEach(button => {
+      button.onclick = () => {
+        const d = rows[Number(button.dataset.stopPreview)];
+        if (d) departureDetail(d);
+      };
+    });
+
+  }).catch(error => {
+    if (!preview.isConnected || !$('#dialog').open) return;
+
+    console.warn('Vertrekken op kaart:', error);
+    preview.className = 'empty';
+    preview.textContent =
+      'Vertrektijden tijdelijk niet beschikbaar. Probeer opnieuw.';
+  });
+}
+
+$('#nearby').onclick=async()=>{if(!state.nearby.length)await showNearby(state.from||state.board);openDialog('Haltes in de buurt',state.nearby.length?`<div class="dialog-list">${state.nearby.map((p,i)=>`<button data-near="${i}"><span><strong>${esc(p.name)}</strong><small>${p.distanceMeters} m van het vertrekpunt</small></span>↗</button>`).join('')}</div>`:'<p>Geen haltes gevonden. Zoek een halte via de reisplanner.</p>');$$('[data-near]').forEach(b=>b.onclick=()=>{const p=state.nearby[+b.dataset.near];openStop(p);});};
 $('#expand-map').onclick=()=>setView(state.view==='map'?'plan':'map');
 function selectStation(){openDialog('Welke halte zoek je?','<label for="station-query">Halte of station</label><input type="text" id="station-query" autocomplete="off" placeholder="Bijvoorbeeld Gent-Sint-Pieters" role="combobox" aria-expanded="false" aria-controls="station-list" aria-autocomplete="list"><div class="suggestions" id="station-list" role="listbox" hidden></div>');attachSearch($('#station-query'),$('#station-list'),p=>{setBoard(p);showNearby(p);$('#dialog').close();});$('#station-query').focus();}
 $('#station-select').onclick=selectStation;
