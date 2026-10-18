@@ -13,6 +13,7 @@
   const cfg = window.OVFLOW_CONFIG || {};
   const TRANSITOUS_BASE = String(cfg.TRANSITOUS_BASE || "https://api.transitous.org").replace(/\/$/, "");
   const API_BASE = String(cfg.API_BASE || "").trim().replace(/\/$/, "");
+  const SERVER_ONLY = cfg.SERVER_ONLY === true;
   const JSON_HEADERS = { Accept: "application/json" };
   const cache = new Map();
 
