@@ -15,7 +15,7 @@
  function startTimers(){cancelTimers();if(state.view!=='live'||!live.trip)return;live.timers=[setInterval(()=>{if(!document.hidden)loadGps(live.epoch);},15000),setInterval(()=>{if(!document.hidden)loadTrip(live.epoch,false);},60000),setInterval(()=>{if(!document.hidden)renderProgress();},5000)];}
  function onView(view){cancelTimers();if(view!=='live')return;if(!location.hash.startsWith('#live'))history.replaceState(null,'','#live');if(live.trip){remember(live.trip);makeMap();setTimeout(()=>{liveMap?.invalidateSize();if(!mapFitted){fit();mapFitted=true;}},70);startTimers();}else loadBoard();}
  function remember(d){const params=new URLSearchParams({trip:d.tripId,line:d.line||'',destination:d.destination||'',mode:d.mode||'',operator:d.operator||''});history.replaceState(null,'','#live?'+params);try{sessionStorage.setItem('ovflow8.live-trip',JSON.stringify(d));}catch{}}
- function open(d){if(!d?.tripId){toast('Voor deze rit is geen rit-ID beschikbaar. Kies een ander vertrek.');return;}live.epoch++;cancelTimers();live.trip={tripId:d.tripId,line:d.line||'',destination:d.destination||'',mode:d.mode||'bus',operator:d.operator||''};live.data=null;live.stops=[];live.geometry=[];live.gps=null;live.updated=0;live.loadingTrip=false;live.loadingGps=false;live.following=false;live.gpsError='GPS controleren…';mapFitted=false;$('#live-picker').hidden=true;$('#live-trip-panel').hidden=false;$('#live-choose').hidden=false;$('#live-line').textContent=live.trip.line||modeName(live.trip.mode);$('#live-operator').textContent=`${modeName(live.trip.mode)} · ${live.trip.operator||'Openbaar vervoer'}`;$('#live-destination').textContent=live.trip.destination?`Richting ${live.trip.destination}`:'Je geselecteerde rit';$('#live-journey').textContent='Haltevolgorde ophalen…';$('#live-stops').innerHTML='<div class="loading">Echte haltes van deze rit ophalen…</div>';$('#live-stops-count').textContent='Haltes laden…';$('#live-next').textContent='';$('#live-message').textContent='';$('#live-position-title').textContent='Positie ophalen…';$('#live-position-description').textContent='';$('#live-updated').textContent='';setView('live');remember(live.trip);makeMap();routeGroup?.clearLayers();stopGroup?.clearLayers();clearVehicle();renderFollow();loadTrip(live.epoch,true);loadGps(live.epoch);startTimers();}
+ function open(d){if(!d?.tripId){toast('Voor deze rit is geen rit-ID beschikbaar. Kies een ander vertrek.');return;}live.epoch++;cancelTimers();live.trip={tripId:d.tripId,gtfsTripId:d.gtfsTripId||String(d.tripId||"").match(/gt:delijn:.+$/)?.[0]||"",line:d.line||'',destination:d.destination||'',mode:d.mode||'bus',operator:d.operator||''};live.data=null;live.stops=[];live.geometry=[];live.gps=null;live.updated=0;live.loadingTrip=false;live.loadingGps=false;live.following=false;live.gpsError='GPS controleren…';mapFitted=false;$('#live-picker').hidden=true;$('#live-trip-panel').hidden=false;$('#live-choose').hidden=false;$('#live-line').textContent=live.trip.line||modeName(live.trip.mode);$('#live-operator').textContent=`${modeName(live.trip.mode)} · ${live.trip.operator||'Openbaar vervoer'}`;$('#live-destination').textContent=live.trip.destination?`Richting ${live.trip.destination}`:'Je geselecteerde rit';$('#live-journey').textContent='Haltevolgorde ophalen…';$('#live-stops').innerHTML='<div class="loading">Echte haltes van deze rit ophalen…</div>';$('#live-stops-count').textContent='Haltes laden…';$('#live-next').textContent='';$('#live-message').textContent='';$('#live-position-title').textContent='Positie ophalen…';$('#live-position-description').textContent='';$('#live-updated').textContent='';setView('live');remember(live.trip);makeMap();routeGroup?.clearLayers();stopGroup?.clearLayers();clearVehicle();renderFollow();loadTrip(live.epoch,true);loadGps(live.epoch);startTimers();}
  function openLeg(l){open({tripId:l.tripId,line:l.routeShortName||l.displayName,destination:l.headsign||l.to?.name,mode:l.mode,operator:l.agencyName});}
  function selectOther(){live.epoch++;cancelTimers();live.trip=null;live.data=null;live.stops=[];live.gps=null;live.loadingTrip=false;live.loadingGps=false;clearVehicle();try{sessionStorage.removeItem('ovflow8.live-trip');}catch{}history.replaceState(null,'','#live');$('#live-picker').hidden=false;$('#live-trip-panel').hidden=true;$('#live-choose').hidden=true;loadBoard();}
  async function loadBoard(){if(live.trip||state.view!=='live')return;const id=++live.boardSeq;$('#live-departures').innerHTML='<div class="loading">Ritten bij deze halte ophalen…</div>';try{const r=await OVFlowCore.stopDepartures(live.place,60);if(id!==live.boardSeq||live.trip)return;live.board=r.departures;renderBoard();}catch{if(id!==live.boardSeq||live.trip)return;live.board=[];$('#live-departures').innerHTML='<div class="empty">Ritten ophalen lukt niet. Kies een andere halte of probeer opnieuw.<button id="live-retry-board" class="outline">Opnieuw proberen</button></div>';$('#live-retry-board').onclick=loadBoard;}}
@@ -35,82 +35,82 @@
      );
  }
 
- function shapeFitsStops(points,stops){
-   const validStops=(stops||[]).map(point).filter(Boolean);
-   if(points.length<2 || validStops.length<2)return true;
 
-   const anchors=[validStops[0],validStops.at(-1)];
+ function shapeFitsStops(points, stops) {
+   const orderedStops = (stops || []).map(point).filter(Boolean);
+   if (points.length < 2 || orderedStops.length < 2) return false;
 
-   return anchors.every(stop=>{
-     let nearest=Infinity;
-     const step=Math.max(1,Math.floor(points.length/1200));
+   let fromIndex = 0;
 
-     for(let i=0;i<points.length;i+=step){
-       nearest=Math.min(nearest,distance(stop,points[i]));
-       if(nearest<1000)break;
+   for (const stop of orderedStops) {
+     let nearest = Infinity;
+     let nearestIndex = -1;
+
+     for (let i = fromIndex; i < points.length; i++) {
+       const meters = distance(stop, points[i]);
+       if (meters < nearest) {
+         nearest = meters;
+         nearestIndex = i;
+       }
      }
 
-     return nearest<=5000;
-   });
+     if (nearestIndex < 0 || nearest > 350) return false;
+     fromIndex = nearestIndex;
+   }
+
+   return true;
  }
 
- async function requestGtfsShape(includeTripId=true){
-   const base=String(window.OVFLOW_CONFIG?.API_BASE||'').replace(/\/$/,'');
-   if(!base)throw Error('OVFlow API_BASE ontbreekt');
 
-   const url=new URL(base+'/api/v4/delijn/route-shape');
+ async function requestGtfsShape() {
+   const base = String(window.OVFLOW_CONFIG?.API_BASE || "")
+     .replace(/\/$/, "");
 
-   if(includeTripId && live.trip?.tripId)
-     url.searchParams.set('tripId',live.trip.tripId);
+   const nativeId = String(
+     live.trip?.gtfsTripId || live.trip?.tripId || ""
+   ).match(/gt:delijn:.+$/)?.[0] || "";
 
-   if(live.trip?.line)
-     url.searchParams.set('line',live.trip.line);
+   if (!base || !nativeId)
+     throw Error("Geen oorspronkelijke GTFS-trip-ID beschikbaar");
 
-   if(live.trip?.destination)
-     url.searchParams.set('destination',live.trip.destination);
+   const url = new URL(base + "/api/v4/delijn/route-shape");
+   url.searchParams.set("tripId", nativeId);
 
-   const {response,data}=await OVFlowCore.fetchJson(url,{timeout:12000});
+   if (live.trip?.line)
+     url.searchParams.set("line", live.trip.line);
 
-   if(!response.ok)
-     throw Error(data?.message||`GTFS route-shape HTTP ${response.status}`);
+   if (live.trip?.destination)
+     url.searchParams.set("destination", live.trip.destination);
+
+   const {response, data} = await OVFlowCore.fetchJson(
+     url, {timeout: 12000}
+   );
+
+   if (!response.ok)
+     throw Error(data?.message || "GTFS-route niet beschikbaar");
 
    return data;
  }
 
- async function fetchExactGtfsShape(stops){
-   // Treinen gebruiken hun eigen ritgeometrie.
-   if(/train|rail|trein/i.test(String(live.trip?.mode||'')))
+
+ async function fetchExactGtfsShape(stops) {
+   if (/train|rail|trein/i.test(String(live.trip?.mode || "")))
      return null;
 
-   try{
-     // Eerst exacte tripId proberen
-     let data=await requestGtfsShape(true);
-     let points=shapePoints(data);
+   try {
+     const data = await requestGtfsShape();
+     const points = shapePoints(data);
 
-     if(points.length<2)
-       throw Error('GTFS shape bevat onvoldoende punten');
+     if (data?.exactTripMatch !== true)
+       throw Error("GTFS-trip niet exact bevestigd");
 
-     // Bescherming tegen een verkeerde/stale tripId
-     if(!shapeFitsStops(points,stops)){
-       console.warn(
-         'OVFlow: GTFS-shape van tripId past niet bij de haltes; probeer lijn/richting.'
-       );
+     if (!shapeFitsStops(points, stops))
+       throw Error("GTFS-route volgt de haltes niet in de juiste volgorde");
 
-       data=await requestGtfsShape(false);
-       points=shapePoints(data);
+     return {points, meta: data};
 
-       if(points.length<2 || !shapeFitsStops(points,stops))
-         throw Error('GTFS shape past niet bij deze rit');
-
-       data={...data,exactTripMatch:false,recoveredFromTripId:true};
-     }
-
-     return {
-       points,
-       meta:data
-     };
-   }catch(error){
-     console.warn('Echte GTFS-route niet beschikbaar:',error);
+   } catch (error) {
+     console.warn("Geen geverifieerde GTFS-route:", error.message);
      return null;
    }
  }
