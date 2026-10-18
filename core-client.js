@@ -1,21 +1,101 @@
 (() => {
   "use strict";
 
-  /*
-   * OVFlow 8.2 server-first data client
-   *
-   * The browser talks to the OVFlow backend for search, nearby places,
-   * departures, route planning and live trip/GPS data. Provider API keys stay
-   * on the server. Direct Transitous calls remain only as an optional fallback
-   * when SERVER_ONLY is explicitly disabled.
-   */
+  // All transit requests go through the user-owned OVFlow backend.
 
   const cfg = window.OVFLOW_CONFIG || {};
-  const TRANSITOUS_BASE = String(cfg.TRANSITOUS_BASE || "https://api.transitous.org").replace(/\/$/, "");
   const API_BASE = String(cfg.API_BASE || "").trim().replace(/\/$/, "");
-  const SERVER_ONLY = cfg.SERVER_ONLY === true;
+  const TRANSITOUS_BASE = `${API_BASE}/api/v8/transit`;
   const JSON_HEADERS = { Accept: "application/json" };
   const cache = new Map();
+
+  // OVFlow 8.4: use existing v4 backend as the source of truth.
+  // v8 transit proxy is a fallback and hosts profile endpoints when installed.
+  function normalizeBackendPlace(item) {
+    if (!item) return null;
+    const lat = Number(item.lat ?? item.latitude);
+    const lon = Number(item.lon ?? item.longitude ?? item.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const mode = String(item.mode || (item.type === "station" ? "train" : "bus")).toLowerCase();
+    return {
+      ...item,
+      type: String(item.type || (mode === "train" ? "station" : "stop")).toLowerCase(),
+      mode,
+      id: String(item.id || ""),
+      transitousId: String(item.transitousId || ""),
+      name: String(item.name || "Onbekende halte"),
+      municipality: String(item.municipality || item.subtitle || ""),
+      operator: String(item.operator || "Openbaar vervoer"),
+      lat, lon, latitude: lat, longitude: lon,
+      raw: { ...item, country: "BE", source: "ovflow-api" }
+    };
+  }
+
+  function normalizeBackendDeparture(item, stopName = "") {
+    if (!item) return null;
+    const planned = iso(item.plannedDeparture || item.scheduledDeparture || item.realtimeDeparture);
+    const effective = iso(item.realtimeDeparture || item.departure || planned);
+    if (!planned && !effective) return null;
+    return {
+      ...item,
+      id: String(item.id || item.tripId || `${stopName}-${planned || effective}`),
+      tripId: String(item.tripId || ""), // NEVER treat departure ID as a native trip ID
+      gtfsTripId: String(item.gtfsTripId || ""),
+      stopName: String(item.stopName || item.origin || stopName || ""),
+      mode: String(item.mode || "bus").toLowerCase(),
+      line: String(item.line || (item.mode === "train" ? "Trein" : "Bus")),
+      operator: String(item.operator || "Openbaar vervoer"),
+      destination: String(item.destination || "Onbekende richting"),
+      plannedDeparture: planned || effective,
+      realtimeDeparture: effective || planned,
+      delayMinutes: Number(item.delayMinutes) || 0,
+      cancelled: Boolean(item.cancelled),
+      realtime: Boolean(item.realtime),
+      platform: String(item.platform || item.bay || ""),
+      source: String(item.source || "ovflow-api")
+    };
+  }
+
+  async function backendRequest(path, params = {}, timeout = 10000) {
+    if (!API_BASE) throw Error("OVFlow-server niet ingesteld");
+    const url = new URL(API_BASE + path);
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+    }
+    const { response, data } = await cachedJson(url, 8000, { timeout });
+    if (!response.ok || data?.ok === false) throw Error(data?.message || `OVFlow API HTTP ${response.status}`);
+    return data;
+  }
+
+  async function backendStopDepartures(stop, max = 8) {
+    let id = String(stop?.id || "");
+    const rail = stop?.type === "station" || stop?.mode === "train" || /^BE\.NMBS/i.test(id);
+    if (rail && !/^BE\.NMBS/i.test(id)) {
+      const found = await backendSearchPlaces(stop?.name || "", 10);
+      const station = found.find(p => p.mode === "train" || p.type === "station");
+      if (station) id = station.id;
+    }
+    const data = rail
+      ? await backendRequest("/api/v4/rail/liveboard", { id, max: Math.min(20, max) })
+      : await backendRequest(`/api/v4/stops/${encodeURIComponent(id)}/departures`, { max: Math.min(20, max) });
+    const name = String(stop?.name || data?.station?.name || "");
+    return { departures: asArray(data?.departures).map(dep => normalizeBackendDeparture(dep, name)).filter(Boolean), source: "ovflow-api" };
+  }
+
+  async function backendSearchPlaces(query, max = 10) {
+    const data = await backendRequest("/api/v4/search", { q: query, max }, 10000);
+    return asArray(data?.results).map(normalizeBackendPlace).filter(Boolean);
+  }
+
+  async function backendNearbyStops({ lat, lon, radius = 2500, max = 12 }) {
+    const data = await backendRequest("/api/v4/stops/nearby", { lat, lon, radius, max: Math.min(25, max) }, 16000);
+    return asArray(data?.stops).map(normalizeBackendPlace).filter(Boolean);
+  }
+
+  async function planJourney(params = {}, options = {}) {
+    // Main server route works with older deployed backends, no v8 dependency.
+    return backendRequest("/api/v4/journeys", params, options.timeout || 25000);
+  }
 
   function asArray(value) {
     if (Array.isArray(value)) return value;
@@ -193,7 +273,7 @@
   }
 
   async function transitousGeocode(query, max = 10) {
-    const url = new URL(`${TRANSITOUS_BASE}/api/v1/geocode`);
+    const url = new URL(`${TRANSITOUS_BASE}/geocode`);
     url.searchParams.set("text", query);
     url.searchParams.set("type", "STOP");
     url.searchParams.set("numResults", String(clamp(max, 1, 20)));
@@ -204,7 +284,7 @@
   }
 
   async function transitousReverseStops(lat, lon, max = 8) {
-    const url = new URL(`${TRANSITOUS_BASE}/api/v1/reverse-geocode`);
+    const url = new URL(`${TRANSITOUS_BASE}/reverse-geocode`);
     url.searchParams.set("place", `${lat},${lon}`);
     url.searchParams.set("type", "STOP");
     url.searchParams.set("numResults", String(clamp(max, 1, 20)));
@@ -218,7 +298,7 @@
     time = null, windowSeconds = null, direction = "LATER", minimumEvents = null,
     exactRadius = false, fetchStops = false, arriveBy = false, both = false, timeout = 12000
   }) {
-    const url = new URL(`${TRANSITOUS_BASE}/api/v6/stoptimes`);
+    const url = new URL(`${TRANSITOUS_BASE}/stoptimes`);
     if (stopId) {
       url.searchParams.set("stopId", String(stopId));
     } else if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
@@ -322,137 +402,6 @@
     return Boolean(API_BASE);
   }
 
-
-  function normalizeBackendPlace(item) {
-    if (!item) return null;
-    const lat = Number(item.lat ?? item.latitude);
-    const lon = Number(item.lon ?? item.longitude ?? item.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    const mode = String(item.mode || (item.type === "station" ? "train" : "bus")).toLowerCase();
-    return {
-      ...item,
-      type: String(item.type || (mode === "train" ? "station" : "stop")).toLowerCase(),
-      mode,
-      id: String(item.id || ""),
-      transitousId: String(item.transitousId || ""),
-      name: String(item.name || "Onbekende halte"),
-      municipality: String(item.municipality || item.subtitle || ""),
-      operator: String(item.operator || "Openbaar vervoer"),
-      lat, lon, latitude: lat, longitude: lon,
-      raw: { ...item, country: "BE", source: "ovflow-api" }
-    };
-  }
-
-  function normalizeBackendDeparture(item, stopName = "") {
-    if (!item) return null;
-    const planned = iso(item.plannedDeparture || item.scheduledDeparture || item.realtimeDeparture);
-    const realtime = iso(item.realtimeDeparture || item.departure || planned);
-    if (!planned && !realtime) return null;
-    const plannedDate = parseDate(planned || realtime);
-    const realtimeDate = parseDate(realtime || planned);
-    const delayMinutes = Number.isFinite(Number(item.delayMinutes))
-      ? Number(item.delayMinutes)
-      : (plannedDate && realtimeDate ? Math.round((realtimeDate - plannedDate) / 60000) : 0);
-    return {
-      ...item,
-      id: String(item.id || item.tripId || `${stopName}-${realtime || planned || ""}`),
-      tripId: String(item.tripId || ""),
-      stopId: String(item.stopId || ""),
-      stopName: String(item.stopName || item.origin || stopName || ""),
-      mode: String(item.mode || "bus").toLowerCase(),
-      line: String(item.line || (item.mode === "train" ? "Trein" : "Bus")),
-      operator: String(item.operator || "Openbaar vervoer"),
-      destination: String(item.destination || "Onbekende richting"),
-      origin: String(item.origin || stopName || ""),
-      plannedDeparture: planned || realtime,
-      realtimeDeparture: realtime || planned,
-      delayMinutes,
-      platform: String(item.platform || item.bay || ""),
-      platformChanged: Boolean(item.platformChanged),
-      realtime: Boolean(item.realtime),
-      cancelled: Boolean(item.cancelled),
-      source: "ovflow-api"
-    };
-  }
-
-  async function backendSearchPlaces(query, max = 10) {
-    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
-    const url = new URL(`${API_BASE}/api/v4/search`);
-    url.searchParams.set("q", String(query || ""));
-    url.searchParams.set("max", String(clamp(max, 1, 20)));
-    const { response, data } = await cachedJson(url, 30_000, { timeout: 9000 });
-    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow zoeken HTTP ${response.status}`);
-    return asArray(data?.results).map(normalizeBackendPlace).filter(Boolean);
-  }
-
-  async function backendNearbyStops({ lat, lon, radius = 2500, max = 12 }) {
-    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
-    const url = new URL(`${API_BASE}/api/v4/stops/nearby`);
-    url.searchParams.set("lat", String(lat));
-    url.searchParams.set("lon", String(lon));
-    url.searchParams.set("radius", String(radius));
-    url.searchParams.set("max", String(max));
-    const { response, data } = await cachedJson(url, 20_000, { timeout: 9000 });
-    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow nearby HTTP ${response.status}`);
-    return asArray(data?.stops).map(normalizeBackendPlace).filter(Boolean);
-  }
-
-  async function backendNearby({ lat, lon, radius = 2500, maxPlaces = 6, maxDepartures = 3 }) {
-    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
-    const url = new URL(`${API_BASE}/api/v4/nearby`);
-    url.searchParams.set("lat", String(lat));
-    url.searchParams.set("lon", String(lon));
-    url.searchParams.set("radius", String(radius));
-    url.searchParams.set("maxPlaces", String(maxPlaces));
-    url.searchParams.set("maxDepartures", String(maxDepartures));
-    const { response, data } = await cachedJson(url, 12_000, { timeout: 12000 });
-    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow nearby HTTP ${response.status}`);
-    const places = asArray(data?.places).map(item => {
-      const place = normalizeBackendPlace(item);
-      if (!place) return null;
-      return { ...place, departures: asArray(item.departures).map(dep => normalizeBackendDeparture(dep, place.name)).filter(Boolean) };
-    }).filter(Boolean);
-    return { ...data, places, source: "OVFlow API" };
-  }
-
-  async function backendStopDepartures(stop, max = 8) {
-    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
-    const id = String(stop?.id || "");
-    const isRail = String(stop?.type || "").toLowerCase() === "station" || String(stop?.mode || "").toLowerCase() === "train" || /^BE\.NMBS/i.test(id) || /sncb/i.test(id);
-    let url;
-    if (isRail) {
-      let railId = id;
-      // Oude OVFlow builds gebruikten Transitous station-id's (bv. be-sncb_*).
-      // Resolve die eerst via de eigen backend naar de iRail/NMBS-id.
-      if (!/^BE\.NMBS/i.test(railId) && !/^https?:/i.test(railId)) {
-        const candidates = await backendSearchPlaces(stop?.name || "", 8);
-        const station = candidates.find(p => p.type === "station" || p.mode === "train");
-        if (station?.id) railId = station.id;
-      }
-      url = new URL(`${API_BASE}/api/v4/rail/liveboard`);
-      url.searchParams.set("id", railId);
-      url.searchParams.set("max", String(clamp(max, 1, 20)));
-    } else {
-      if (!/^\d{1,3}[-:/]\d{1,8}$/.test(id)) throw new Error("Deze halte heeft geen geldige OVFlow-haltecode.");
-      url = new URL(`${API_BASE}/api/v4/stops/${encodeURIComponent(id)}/departures`);
-      url.searchParams.set("max", String(clamp(max, 1, 20)));
-    }
-    const { response, data } = await cachedJson(url, 8_000, { timeout: 10000 });
-    if (!response.ok || data?.ok === false) throw new Error(data?.message || `OVFlow vertrekken HTTP ${response.status}`);
-    return { departures: asArray(data?.departures).map(dep => normalizeBackendDeparture(dep, stop?.name || data?.station?.name || "")).filter(Boolean), source: "OVFlow API" };
-  }
-
-  async function planJourney(params = {}, options = {}) {
-    if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
-    const url = new URL(`${API_BASE}/api/v4/journeys`);
-    Object.entries(params || {}).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
-    });
-    const { response, data } = await fetchJson(url, { timeout: options.timeout || 25000 });
-    if (!response.ok) throw new Error(data?.message || `OVFlow routeplanner HTTP ${response.status}`);
-    return data || {};
-  }
-
   async function backendLiveTrip(tripId, line = "", options = {}) {
     if (!API_BASE) throw new Error("OVFlow-backend is niet geconfigureerd.");
     const id = String(tripId || "").trim();
@@ -496,14 +445,15 @@
       try {
         const data = await backendLiveTrip(id, options.line || "", options);
         if (data?.trip) return data.trip;
-      } catch (error) {
-        if (SERVER_ONLY) throw error;
-        console.warn("OVFlow live backend fallback:", error?.message || error);
-      }
+      } catch (error) { console.warn("OVFlow backend trip fallback:", error.message); }
     }
-    const url = new URL(`${TRANSITOUS_BASE}/api/v6/trip`);
+    const url = new URL(`${TRANSITOUS_BASE}/trip`);
     url.searchParams.set("tripId", id);
     url.searchParams.set("withScheduledSkippedStops", "true");
+    // Live Trip needs the stop sequence first. The full encoded route geometry
+    // can be very large for bus routes and used to block Safari's main thread
+    // while decoding/projecting it. MOTIS keeps the stops when detailedLegs is
+    // false, so OVFlow draws a lightweight stop-to-stop route instead.
     url.searchParams.set("detailedLegs", String(Boolean(options.detailedLegs ?? false)));
     url.searchParams.set("joinInterlinedLegs", "false");
     const timeout = Math.max(2500, Math.min(12000, Number(options.timeout || 6500)));
@@ -624,10 +574,7 @@
 
     if (API_BASE) {
       try { return await backendStopDepartures(stop, max); }
-      catch (error) {
-        if (SERVER_ONLY) throw error;
-        console.warn("OVFlow departures backend fallback:", error?.message || error);
-      }
+      catch (error) { console.warn("OVFlow backend departures fallback:", error.message); }
     }
 
     const stopId = String(stop.transitousId || stop.id || "");
@@ -653,11 +600,8 @@
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error("Ongeldige locatie.");
 
     if (API_BASE) {
-      try { return await backendNearbyStops({ lat: latitude, lon: longitude, radius, max }); }
-      catch (error) {
-        if (SERVER_ONLY) throw error;
-        console.warn("OVFlow nearby-stops backend fallback:", error?.message || error);
-      }
+      try { return await backendNearbyStops({lat: latitude, lon: longitude, radius, max}); }
+      catch (error) { console.warn("OVFlow backend nearby fallback:", error.message); }
     }
 
     const candidates = await transitousReverseStops(latitude, longitude, Math.min(Math.max(max * 2, 8), 20));
@@ -677,11 +621,14 @@
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error("Ongeldige locatie.");
 
     if (API_BASE) {
-      try { return await backendNearby({ lat: latitude, lon: longitude, radius, maxPlaces, maxDepartures }); }
-      catch (error) {
-        if (SERVER_ONLY) throw error;
-        console.warn("OVFlow nearby backend fallback:", error?.message || error);
-      }
+      try {
+        const data=await backendRequest("/api/v4/nearby", {lat:latitude,lon:longitude,radius,maxPlaces,maxDepartures}, 15000);
+        const places=asArray(data?.places).map(item=>{
+          const p=normalizeBackendPlace(item);
+          return p?{...p,departures:asArray(item.departures).map(dep=>normalizeBackendDeparture(dep,p.name)).filter(Boolean)}:null;
+        }).filter(Boolean);
+        return {...data,places,source:"ovflow-api"};
+      }catch(error){console.warn("OVFlow nearby overview fallback:",error.message);}
     }
 
     // Eén compacte MOTIS-stoptimes call is de normale route. Dit is veel
@@ -784,30 +731,30 @@
     if (q.length < 2) return [];
     if (API_BASE) {
       try { return await backendSearchPlaces(q, max); }
-      catch (error) {
-        if (SERVER_ONLY) throw error;
-        console.warn("OVFlow search backend fallback:", error?.message || error);
-      }
+      catch (error) { console.warn("OVFlow backend search fallback:", error.message); }
     }
     return transitousGeocode(q, max);
   }
 
   async function detect() {
-    if (!API_BASE) return { checked: true, v4: false, legacy: false, public: true, source: "Transitous / MOTIS" };
-    try {
-      const status = await health();
-      return { checked: true, v4: Boolean(status.ok), legacy: false, public: false, source: status.ok ? "OVFlow API" : "OVFlow API niet bereikbaar", version: status.version || "" };
-    } catch {
-      return { checked: true, v4: false, legacy: false, public: false, source: "OVFlow API niet bereikbaar" };
-    }
+    return {
+      checked: true,
+      v4: false,
+      legacy: false,
+      public: true,
+      source: API_BASE ? "OVFlow backend + Transitous / MOTIS" : "Transitous / MOTIS"
+    };
   }
 
   async function health() {
-    if (!API_BASE) return { ok: navigator.onLine !== false, mode: "public", source: "Transitous / MOTIS" };
-    const url = new URL(`${API_BASE}/api/health`);
-    const { response, data } = await cachedJson(url, 30_000, { timeout: 5000 });
-    if (!response.ok) return { ok: false, mode: "server", source: "OVFlow API", status: response.status };
-    return { ...(data || {}), ok: data?.ok !== false, mode: "server", source: "OVFlow API" };
+    // Do not generate a request every minute only to paint a green status dot.
+    // Real feature calls surface their own network errors. navigator.onLine is
+    // enough for this lightweight UI indicator and avoids 404 spam completely.
+    return {
+      ok: navigator.onLine !== false,
+      mode: API_BASE ? "hybrid" : "public",
+      source: API_BASE ? "OVFlow backend + Transitous / MOTIS" : "Transitous / MOTIS"
+    };
   }
 
   window.OVFlowCore = {
@@ -826,10 +773,8 @@
     backendDelijnLineStops,
     backendVehiclePosition,
     planJourney,
-    backendSearchPlaces,
-    backendNearby,
-    backendNearbyStops,
     backendStopDepartures,
+    backendNearbyStops,
     hasBackend
   };
 })();

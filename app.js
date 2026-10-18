@@ -12,6 +12,7 @@ const paths = {
  swap:'<path d="M8 3v15m-4-4 4 4 4-4M16 21V6m-4 4 4-4 4 4"/>',sliders:'<path d="M4 7h8m4 0h4M4 17h3m4 0h9M12 4v6M7 14v6"/>',
  leaf:'<path d="M20 4C4 1 2 14 9 17c7 3 12-3 11-13ZM4 21 15 10"/>',arrow:'<path d="M4 12h15m-5-5 5 5-5 5"/>',
  home:'<path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-8h6v8"/>',work:'<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V3h8v4M3 12h18m-11 0v3h4v-3"/>',plus:'<path d="M12 4v16M4 12h16"/>',
+ tram:'<rect x="5" y="4" width="14" height="15" rx="2"/><path d="M5 9h14M8 13h2m4 0h2M8 19l-2 3m10-3 2 3M8 2h8"/>',
  train:'<rect x="5" y="3" width="14" height="16" rx="3"/><path d="M5 11h14M12 3v8M8 15h.1M16 15h.1M8 19l-2 3m10-3 2 3"/>',bus:'<rect x="4" y="4" width="16" height="15" rx="3"/><path d="M4 12h16M7 16h1m8 0h1M7 19v2m10-2v2"/>',
  refresh:'<path d="M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3"/>',expand:'<path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/>',compass:'<circle cx="12" cy="12" r="9"/><path d="m16 8-3 5-5 3 3-5Z"/>'
 };
@@ -20,7 +21,7 @@ function icons(root = document) { $$('[data-icon]', root).forEach(el => el.inner
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = value => new Date(value).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Brussels'});
 const duration = sec => { const m = Math.round(sec/60); return m >= 60 ? `${Math.floor(m/60)} u ${m%60 ? m%60+' min' : ''}` : `${m} min`; };
-const station = {id:'be-sncb_S8891702',name:'Oostende',municipality:'Oostende',lat:51.22821,lon:2.92581,mode:'train'};
+const station = {id:'BE.NMBS.008891702',name:'Oostende',municipality:'Oostende',lat:51.22821,lon:2.92581,mode:'train'};
 let saved = []; try { saved = JSON.parse(localStorage.getItem('ovflow8.places') || '[]').filter(p => p && p.place && Number.isFinite(p.place.lat) && Number.isFinite(p.place.lon)); } catch {}
 const state = {from:{...station},to:null,board:{...station},filter:'all',departures:[],expanded:false,view:'plan',routes:[],nearby:[],lastUpdate:0};
 let map, markers, routeLayer, boardSeq=0, nearbySeq=0, mapTilesFailed=false;
@@ -45,15 +46,15 @@ function editPlace(label=''){const old=saved.find(p=>p.label===label);let select
  if(old)$('#delete-place').onclick=()=>{saved=saved.filter(s=>s!==old);persist();$('#dialog').close();toast('Plek verwijderd.');};
 }
 function setView(view){
- state.view=view;document.body.className=`view-${view}`;$('#results').hidden=true;$('#saved-page').hidden=view!=='saved';$('#live-page').hidden=view!=='live';if(view!=='live'&&location.hash.startsWith('#live'))history.replaceState(null,'',location.pathname+location.search+'#'+view);
- const meta={live:['Live volgen','Je rit, van halte tot halte.','Volg je bus, tram of trein op de kaart. Met de echte haltes van jouw rit.'],plan:['Reis plannen','Waar gaan we naartoe?','Een nieuwe dag. Een vertrouwde route. Of ergens helemaal anders.'],departures:['Vertrekken','Je volgende vertrek.','Trein, tram of bus. Alle vertrektijden bij jouw halte.'],map:['Ontdek de kaart','Een wereld aan haltes.','Kies een halte op de kaart en bekijk de volgende vertrekken.'],saved:['Bewaard','Jouw plekken. Jouw ritme.','De plekken waar je graag komt, altijd binnen handbereik.']}[view];
+ state.view=view;document.body.className=`view-${view}`;$('#results').hidden=true;$('#saved-page').hidden=view!=='saved';$('#live-page').hidden=view!=='live';$('#profile-page').hidden=view!=='profile';if(view!=='live')history.replaceState(null,'',location.pathname+location.search+'#'+view);
+ const meta={profile:['Mijn profiel','Jouw reizen, jouw verhaal.','Je kilometers, favoriete lijnen en alle ritten die je hebt gemaakt.'],live:['Live volgen','Je rit, van halte tot halte.','Volg je bus, tram of trein op de kaart. Met de echte haltes van jouw rit.'],plan:['Reis plannen','Waar gaan we naartoe?','Een nieuwe dag. Een vertrouwde route. Of ergens helemaal anders.'],departures:['Vertrekken','Je volgende vertrek.','Trein, tram of bus. Alle vertrektijden bij jouw halte.'],map:['Ontdek de kaart','Een wereld aan haltes.','Kies een halte op de kaart en bekijk de volgende vertrekken.'],saved:['Bewaard','Jouw plekken. Jouw ritme.','De plekken waar je graag komt, altijd binnen handbereik.']}[view];
  $('#crumb').textContent=meta[0];$('#heading').textContent=meta[1];$('#subtitle').textContent=meta[2];
  $$('.nav-item[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});
- window.OVFlowLive?.onView(view);if(view==='saved')renderSaved();if(view==='departures')renderDepartures();
+ window.OVFlowLive?.onView(view);window.OVFlowProfile?.onView(view);if(view==='saved')renderSaved();if(view==='departures')renderDepartures();
  setTimeout(()=>map?.invalidateSize(),50);window.scrollTo({top:0,behavior:'smooth'});
 }
 $$('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('.brand').onclick=e=>{e.preventDefault();setView('plan');};
-$('#profile').onclick=$('#edit-places').onclick=()=>setView('saved');$('#add-saved').onclick=()=>editPlace();
+$('#profile').onclick=()=>setView('profile');$('#edit-places').onclick=()=>setView('saved');$('#add-saved').onclick=()=>editPlace();
 function attachSearch(input,list,onSelect,onChange=()=>{}){
  let timer,seq=0;
  function hide(){list.hidden=true;input.setAttribute('aria-expanded','false');}
@@ -77,119 +78,53 @@ function initMap(){if(!window.L){$('#map').innerHTML='<div class="empty">Kaart n
  tiles.on('tileerror',()=>{if(!mapTilesFailed){mapTilesFailed=true;$('#nearby-caption').textContent='Kaarttegels laden niet. Haltes blijven selecteerbaar.';}});
  markers=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);drawMarkers(station,[station]);
 }
-function drawMarkers(center,stops){if(!map)return;markers.clearLayers();const list=[center,...stops.filter(s=>s.id!==center.id)];list.forEach((p,i)=>{const type=p.mode==='train'?'train':'bus';const marker=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'map-marker '+type+(i===0?' selected':''),html:icon(type),iconSize:i===0?[40,40]:[32,32],iconAnchor:[16,16]}),title:p.name,zIndexOffset:i===0?1000:0});marker.bindTooltip(esc(p.name),{direction:'top',offset:[0,-18]});marker.on('click',()=>{openStop(p);});marker.addTo(markers);});map.setView([center.lat,center.lon],14);}
+function drawMarkers(center,stops){if(!map)return;markers.clearLayers();const list=[center,...stops.filter(s=>s.id!==center.id)];list.forEach((p,i)=>{const type=p.mode==='train'?'train':p.mode==='tram'?'tram':'bus';const marker=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'map-marker '+type+(i===0?' selected':''),html:icon(type),iconSize:i===0?[40,40]:[32,32],iconAnchor:[16,16]}),title:p.name,zIndexOffset:i===0?1000:0});marker.bindTooltip(esc(p.name),{direction:'top',offset:[0,-18]});marker.on('click',()=>{openStop(p);});marker.addTo(markers);});map.setView([center.lat,center.lon],14);}
 async function showNearby(p){routeLayer?.clearLayers();const seq=++nearbySeq;$('#map-title').textContent=p.name==='Mijn locatie'?'Rondom jou':`Rondom ${p.municipality||p.name}`;drawMarkers(p,[p]);try{const near=await OVFlowCore.nearbyStops({lat:p.lat,lon:p.lon,max:10,radius:2500});if(seq!==nearbySeq)return;state.nearby=near;drawMarkers(p,near);$('#nearby-caption').textContent=`${near.length} haltes en stations rondom dit vertrekpunt.`;}catch{if(seq!==nearbySeq)return;state.nearby=[];$('#nearby-caption').textContent='Haltes ophalen lukt even niet. Probeer opnieuw.';}}
-
 function openStop(p) {
   openDialog(p.name, `
     <p>${esc(p.municipality || 'Halte of station')}</p>
-    <div id="stop-preview" class="loading">
-      Vertrektijden ophalen…
-    </div>
+    <div id="stop-preview" class="loading">Vertrektijden ophalen…</div>
     <div class="dialog-actions">
-      <button id="stop-board" class="primary">
-        Bekijk alle vertrekken
-      </button>
-      <button id="stop-from" class="outline">
-        Vertrek hier
-      </button>
-    </div>
-    <div class="dialog-actions">
-      <button id="stop-to" class="outline">
-        Reis hiernaartoe ↗
-      </button>
+      <button id="stop-board" class="primary">Bekijk alle vertrekken</button>
+      <button id="stop-from" class="outline">Vertrek hier</button>
+      <button id="stop-to" class="outline">Reis hiernaartoe ↗</button>
     </div>
   `);
-
   const preview = $('#stop-preview');
-
   $('#stop-board').onclick = () => {
     $('#dialog').close();
-    state.filter = 'all';
-    $$('[data-filter]').forEach(b =>
-      b.classList.toggle('active', b.dataset.filter === 'all')
-    );
+    state.filter='all';
+    $$('[data-filter]').forEach(b => b.classList.toggle('active', b.dataset.filter==='all'));
     setView('departures');
     setBoard(p);
   };
-
-  $('#stop-from').onclick = () => {
-    setPlace('from', p);
-    $('#dialog').close();
-    setView('plan');
-  };
-
-  $('#stop-to').onclick = () => {
-    setPlace('to', p);
-    $('#dialog').close();
-    setView('plan');
-  };
+  $('#stop-from').onclick = () => { setPlace('from',p);$('#dialog').close();setView('plan'); };
+  $('#stop-to').onclick = () => { setPlace('to',p);$('#dialog').close();setView('plan'); };
 
   OVFlowCore.stopDepartures(p, 12).then(result => {
     if (!preview.isConnected || !$('#dialog').open) return;
-
     const rows = (result.departures || [])
-      .filter(d => {
-        const time = Date.parse(
-          d.realtimeDeparture || d.plannedDeparture || ''
-        );
-        return Number.isFinite(time) &&
-          time >= Date.now() - 60000;
-      })
-      .sort((a, b) =>
-        Date.parse(a.realtimeDeparture || a.plannedDeparture) -
-        Date.parse(b.realtimeDeparture || b.plannedDeparture)
-      )
-      .slice(0, 8);
-
-    preview.className = '';
-
-    if (!rows.length) {
-      preview.innerHTML =
-        '<p>Geen komende vertrekken gevonden voor deze halte.</p>';
-      return;
-    }
-
-    preview.innerHTML = `
-      <h3>Volgende vertrekken</h3>
-      <div class="dialog-list">
-        ${rows.map((d, i) => `
-          <button type="button" data-stop-preview="${i}">
-            <span>
-              <strong>
-                ${esc(d.line)} · ${esc(d.destination)}
-              </strong>
-              <small>
-                ${esc(d.operator)}
-                ${d.platform ? ' · Spoor ' + esc(d.platform) : ''}
-                ${d.delayMinutes > 0
-                  ? ' · +' + d.delayMinutes + ' min'
-                  : ''}
-                ${d.cancelled ? ' · Geannuleerd' : ''}
-              </small>
-            </span>
-            <strong>
-              ${fmt(d.realtimeDeparture || d.plannedDeparture)}
-            </strong>
-          </button>
-        `).join('')}
-      </div>
-    `;
-
-    $$('[data-stop-preview]', preview).forEach(button => {
-      button.onclick = () => {
-        const d = rows[Number(button.dataset.stopPreview)];
-        if (d) departureDetail(d);
-      };
+      .filter(d => Number.isFinite(Date.parse(d.realtimeDeparture || d.plannedDeparture)) &&
+        Date.parse(d.realtimeDeparture || d.plannedDeparture) >= Date.now()-60000)
+      .sort((a,b)=> Date.parse(a.realtimeDeparture || a.plannedDeparture)-Date.parse(b.realtimeDeparture || b.plannedDeparture))
+      .slice(0,8);
+    preview.className='';
+    if (!rows.length) { preview.textContent='Geen komende vertrekken gevonden voor deze halte.'; return; }
+    preview.innerHTML=`<h3>Volgende vertrekken</h3><div class="dialog-list">
+      ${rows.map((d,i)=>`<button type="button" data-stop-preview="${i}">
+        <span><strong>${esc(d.line)} · ${esc(d.destination)}</strong>
+        <small>${esc(d.operator)}${d.platform?' · Perron '+esc(d.platform):''}
+          ${d.delayMinutes>0?' · +'+d.delayMinutes+' min':''}${d.cancelled?' · Geannuleerd':''}</small></span>
+        <strong>${fmt(d.realtimeDeparture || d.plannedDeparture)}</strong>
+      </button>`).join('')}</div>`;
+    $$('[data-stop-preview]',preview).forEach(button => {
+      button.onclick=()=> {const dep=rows[Number(button.dataset.stopPreview)];if(dep) departureDetail(dep);};
     });
-
-  }).catch(error => {
+  }).catch(err=>{
     if (!preview.isConnected || !$('#dialog').open) return;
-
-    console.warn('Vertrekken op kaart:', error);
-    preview.className = 'empty';
-    preview.textContent =
-      'Vertrektijden tijdelijk niet beschikbaar. Probeer opnieuw.';
+    console.warn('OVFlow marker departures:',err);
+    preview.className='empty';
+    preview.textContent='Vertrektijden tijdelijk niet beschikbaar.';
   });
 }
 
@@ -205,7 +140,7 @@ function renderDepartures(){const data=state.departures.filter(d=>(state.filter=
 }
 $$('[data-filter]').forEach(b=>b.onclick=()=>{state.filter=b.dataset.filter;$$('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderDepartures();});
 $('#refresh').onclick=()=>setBoard(state.board);$('#more-departures').onclick=()=>setView('departures');
-async function departureDetail(d){openDialog(`${d.line} naar ${d.destination}`,`<p><strong>${esc(d.stopName||state.board.name)}</strong><br>${d.cancelled?'Deze rit is geannuleerd.':`Vertrek ${fmt(d.realtimeDeparture)}${d.platform?' · Spoor '+esc(d.platform):''}`}</p><p>${d.realtime?'Realtime-informatie beschikbaar.':'Vertrektijd volgens dienstregeling; geen realtime-bevestiging.'}</p><button id="departure-live" class="primary" style="margin-bottom:20px">Volg deze rit live ↗</button><div id="trip-stops" class="loading">Ritverloop ophalen…</div>`);
+async function departureDetail(d){openDialog(`${d.line} naar ${d.destination}`,`<p><strong>${esc(d.stopName||state.board.name)}</strong><br>${d.cancelled?'Deze rit is geannuleerd.':`Vertrek ${fmt(d.realtimeDeparture)}${d.platform?' · Spoor '+esc(d.platform):''}`}</p><p>${d.realtime?'Realtime-informatie beschikbaar.':'Vertrektijd volgens dienstregeling; geen realtime-bevestiging.'}</p><button id="departure-live" class="primary" style="margin-bottom:20px" ${d.tripId?'':'disabled'}>${d.tripId?'Volg deze rit live ↗':'Live-rit niet beschikbaar'}</button><div id="trip-stops" class="loading">Ritverloop ophalen…</div>`);
  $('#departure-live').onclick=()=>{$('#dialog').close();window.OVFlowLive.open(d);};const token=d.tripId;$('#dialog-body').dataset.trip=token;try{const r=await OVFlowCore.transitousTrip(d.tripId);if($('#dialog-body').dataset.trip!==token||!$('#trip-stops'))return;const legs=(r.legs||r.itinerary?.legs||[]).filter(l=>l.tripId===d.tripId);const stops=legs.flatMap(l=>[l.from,...(l.intermediateStops||[]),l.to]).filter(Boolean);$('#trip-stops').className='';$('#trip-stops').innerHTML=stops.length?`<div class="route-timeline">${stops.map(p=>`<div class="leg"><strong>${esc(p.name)}</strong><small>${p.departure||p.arrival?fmt(p.departure||p.arrival):''}${p.track?' · Spoor '+esc(p.track):''}</small></div>`).join('')}</div>`:'Het volledige ritverloop is niet beschikbaar.';}catch{if($('#dialog-body').dataset.trip===token&&$('#trip-stops')){$('#trip-stops').className='empty';$('#trip-stops').textContent='Het volledige ritverloop is momenteel niet beschikbaar.';}}}
 $('#plan-form').onsubmit=async e=>{e.preventDefault();const error=$('#plan-error');error.hidden=true;if(!state.from||!state.to){error.textContent='Kies je vertrekpunt en bestemming uit de zoeksuggesties.';error.hidden=false;(!state.from?$('#from'):$('#to')).focus();return;}if(Math.abs(state.from.lat-state.to.lat)<.0001&&Math.abs(state.from.lon-state.to.lon)<.0001){error.textContent='Je vertrekpunt en bestemming zijn hetzelfde.';error.hidden=false;return;}
  const mode=$('#time-mode').value;const dt=mode==='now'?new Date():new Date($('#datetime').value);if(!Number.isFinite(dt.getTime())){error.textContent='Kies een geldige datum en tijd.';error.hidden=false;return;}
@@ -217,7 +152,7 @@ function showRoute(r){openDialog('Je reis, stap voor stap',`<p>${fmt(r.startTime
 function decodePolyline(str,precision=6){let index=0,lat=0,lng=0,result=[];while(index<str.length){let shift=0,value=0,b;do{b=str.charCodeAt(index++)-63;value|=(b&31)<<shift;shift+=5;}while(b>=32&&index<str.length);lat+=value&1?~(value>>1):value>>1;shift=0;value=0;do{b=str.charCodeAt(index++)-63;value|=(b&31)<<shift;shift+=5;}while(b>=32&&index<str.length);lng+=value&1?~(value>>1):value>>1;result.push([lat/(10**precision),lng/(10**precision)]);}return result;}
 function drawRoute(r){if(!map)return;markers.clearLayers();routeLayer.clearLayers();let all=[],schematic=false;r.legs.forEach(l=>{let points=l.legGeometry?.points?decodePolyline(l.legGeometry.points,l.legGeometry.precision??6):[];if(!points.length){schematic=true;points=[l.from,...(l.intermediateStops||[]),l.to].filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon)).map(p=>[p.lat,p.lon]);}if(points.length){L.polyline(points,{color:l.mode==='WALK'?'#9b9e89':'#1c624b',weight:l.mode==='WALK'?4:6,dashArray:l.mode==='WALK'?'4 8':null}).addTo(routeLayer);all.push(...points);}[l.from,l.to].forEach(p=>{if(Number.isFinite(p.lat)&&Number.isFinite(p.lon))L.circleMarker([p.lat,p.lon],{radius:6,color:'#174f40',fillColor:'#fff',fillOpacity:1,weight:3}).bindTooltip(esc(p.name)).addTo(routeLayer);});});$('#map-title').textContent='Jouw route';$('#nearby-caption').textContent=schematic?'Schematische verbinding; volg de reisstappen voor details.':'Route volgens reisplanner; geen live voertuigpositie.';setTimeout(()=>{map.invalidateSize();if(all.length)map.fitBounds(all,{padding:[45,55]});},100);}
 $('#coast').onclick=async()=>{setView('plan');toast('Halte in De Haan zoeken…');try{const places=await OVFlowCore.searchPlaces('De Haan Aan Zee',8);const p=places.find(p=>p.mode==='tram')||places[0];if(!p)throw new Error();setPlace('to',p);$('#to').focus();toast('Bestemming ingevuld. Kies je vertrekpunt en vind je route.');}catch{toast('Bestemming niet bereikbaar. Zoek zelf op De Haan.');$('#to').value='De Haan';state.to=null;$('#to').dispatchEvent(new Event('input'));}};
-$('#about').onclick=()=>openDialog('Onderweg met OVFlow',`<p>Een rustigere manier om je reis door België te plannen. Zoek haltes, vergelijk routes en bewaar je vaste plekken.</p><p><strong>Goed om te weten</strong><br>Dit is een privéprototype. Reizen en vertrekken komen van Transitous. “Gepland” betekent dat er geen realtime-bevestiging is. Controleer bij wijzigingen ook de vervoerder.</p><p>Je bewaarde plekken staan alleen op dit apparaat. Je locatie wordt pas opgevraagd wanneer je op de locatieknop tikt. Live volgen toont de echte haltes van een geselecteerde rit. Een voertuigpositie zonder GPS wordt uitdrukkelijk als schatting aangeduid. Er worden geen tickets verkocht.</p><p>Je kunt tickets en reisvoorwaarden bekijken bij je vervoerder:</p><div class="about-links"><a href="https://www.belgiantrain.be/" target="_blank" rel="noopener">NMBS ↗</a><a href="https://www.delijn.be/" target="_blank" rel="noopener">De Lijn ↗</a><a href="https://www.stib-mivb.be/" target="_blank" rel="noopener">MIVB ↗</a><a href="https://www.letec.be/" target="_blank" rel="noopener">TEC ↗</a></div><p style="margin-top:20px;font-size:11px">OVFlow 8.0 · Privétestversie op basis van het aangeleverde OVFlow-ontwerp.<br>Feedback en contact: via de eigenaar van deze privétest.</p>`);
+$('#about').onclick=()=>openDialog('Onderweg met OVFlow',`<p>Een rustigere manier om je reis door België te plannen. Zoek haltes, vergelijk routes en bewaar je vaste plekken.</p><p><strong>Goed om te weten</strong><br>Dit is een privéprototype. Reizen en vertrekken komen van Transitous. “Gepland” betekent dat er geen realtime-bevestiging is. Controleer bij wijzigingen ook de vervoerder.</p><p>Je bewaarde plekken staan op dit apparaat. Je account en bevestigde ritgeschiedenis worden opgeslagen op jouw OVFlow-server. Je locatie wordt pas opgevraagd wanneer je op de locatieknop tikt. Live volgen toont de echte haltes van een geselecteerde rit. Een voertuigpositie zonder GPS wordt uitdrukkelijk als schatting aangeduid. Er worden geen tickets verkocht.</p><p>Je kunt tickets en reisvoorwaarden bekijken bij je vervoerder:</p><div class="about-links"><a href="https://www.belgiantrain.be/" target="_blank" rel="noopener">NMBS ↗</a><a href="https://www.delijn.be/" target="_blank" rel="noopener">De Lijn ↗</a><a href="https://www.stib-mivb.be/" target="_blank" rel="noopener">MIVB ↗</a><a href="https://www.letec.be/" target="_blank" rel="noopener">TEC ↗</a></div><p style="margin-top:20px;font-size:11px">OVFlow 8.0 · Privétestversie op basis van het aangeleverde OVFlow-ontwerp.<br>Feedback en contact: via de eigenaar van deze privétest.</p>`);
 $('#today').textContent=new Date().toLocaleDateString('nl-BE',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/Brussels'});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.lastUpdate&&Date.now()-state.lastUpdate>120000)setBoard(state.board);});
 window.addEventListener('offline',()=>toast('Je bent offline. Opgehaalde vertrektijden kunnen verouderd zijn.'));
