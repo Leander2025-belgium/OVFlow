@@ -1,4 +1,4 @@
-const CACHE='ovflow-84-integration-v1';
+const CACHE='ovflow-84-live-reliability-v2';
 const FILES=['./','./index.html','./styles.css','./app.js','./config.js','./profile.js','./live.js','./live.html','./core-client.js','./icon.svg','./manifest.webmanifest','./vendor/leaflet.js','./vendor/leaflet.css'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));self.skipWaiting();});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>(k.startsWith('ovflow-8-')||k.startsWith('ovflow-84-'))&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
