@@ -5,7 +5,35 @@
 
   const cfg = window.OVFLOW_CONFIG || {};
   const API_BASE = String(cfg.API_BASE || "").trim().replace(/\/$/, "");
-  const TRANSITOUS_BASE = `${API_BASE}/api/v8/transit`;
+  // OVFlow 8.5: Transitous rechtstreeks (publieke API met CORS). De optionele
+  // v8-proxy op de eigen server is alleen nog een reserve bij netwerkfouten.
+  const TRANSITOUS_DIRECT = "https://api.transitous.org/api";
+  const TRANSITOUS_PROXY = API_BASE ? `${API_BASE}/api/v8/transit` : "";
+  const TRANSITOUS_VERSION = { geocode: "v1", "reverse-geocode": "v1", stoptimes: "v6", trip: "v6", plan: "v6", "map/trips": "v6" };
+  function transitousUrls(endpoint) {
+    const urls = [`${TRANSITOUS_DIRECT}/${TRANSITOUS_VERSION[endpoint] || "v1"}/${endpoint}`];
+    if (TRANSITOUS_PROXY) urls.push(`${TRANSITOUS_PROXY}/${endpoint}`);
+    return urls;
+  }
+  // Haalt een Transitous-endpoint op: eerst rechtstreeks, dan via de proxy.
+  async function transitousJson(endpoint, params, ttlMs = 15_000, options = {}) {
+    let lastError = null;
+    for (const base of transitousUrls(endpoint)) {
+      const url = new URL(base);
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+      }
+      try {
+        const result = await cachedJson(url, ttlMs, options);
+        // 404 van de proxy betekent: proxy niet geïnstalleerd → niet verder proberen
+        if (!result.response.ok && base.startsWith(TRANSITOUS_PROXY || "-") && result.response.status === 404) break;
+        return result;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error("Transitous niet bereikbaar");
+  }
   const JSON_HEADERS = { Accept: "application/json" };
   const cache = new Map();
 
@@ -79,7 +107,59 @@
       ? await backendRequest("/api/v4/rail/liveboard", { id, max: Math.min(20, max) })
       : await backendRequest(`/api/v4/stops/${encodeURIComponent(id)}/departures`, { max: Math.min(20, max) });
     const name = String(stop?.name || data?.station?.name || "");
-    return { departures: asArray(data?.departures).map(dep => normalizeBackendDeparture(dep, name)).filter(Boolean), source: "ovflow-api" };
+    const departures = asArray(data?.departures).map(dep => normalizeBackendDeparture(dep, name)).filter(Boolean);
+    await attachTripIds(departures, stop);
+    return { departures, source: "ovflow-api" };
+  }
+
+  // Vertrekken van de eigen server (De Lijn-API, iRail) hebben geen
+  // Transitous-rit-ID. Zonder die ID kan "Volg deze rit live" niet werken.
+  // Koppel ze daarom aan het Transitous-vertrekbord van dezelfde plek
+  // (zelfde lijn/treinnummer, geplande tijd binnen 3 minuten).
+  const digits = v => (String(v || "").match(/\d+/g) || []).join("");
+  const lineKey = v => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  async function attachTripIds(departures, stop) {
+    const missing = departures.filter(d => !d.tripId);
+    if (!missing.length) return departures;
+    const lat = Number(stop?.lat ?? stop?.latitude ?? departures[0]?.stopLatitude);
+    const lon = Number(stop?.lon ?? stop?.longitude ?? departures[0]?.stopLongitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return departures;
+    let board;
+    try {
+      board = await transitousStopTimes({
+        lat, lon, radius: stop?.type === "station" || stop?.mode === "train" ? 350 : 200,
+        max: 120, minimumEvents: 60, time: new Date(Date.now() - 10 * 60000), windowSeconds: 4 * 3600, timeout: 9000
+      });
+    } catch { return departures; }
+    const used = new Set();
+    for (const dep of missing) {
+      const t = parseDate(dep.plannedDeparture || dep.realtimeDeparture)?.getTime();
+      if (!Number.isFinite(t)) continue;
+      const depDigits = digits(dep.line), depKey = lineKey(dep.line);
+      let best = null, bestDiff = Infinity;
+      for (const cand of board.departures) {
+        if (!cand.tripId || used.has(cand.tripId)) continue;
+        const ct = parseDate(cand.plannedDeparture || cand.realtimeDeparture)?.getTime();
+        const diff = Math.abs(ct - t);
+        if (!Number.isFinite(diff) || diff > 3 * 60000) continue;
+        const raw = cand.rawStopTime || {};
+        const train = dep.mode === "train";
+        const ok = train
+          ? (depDigits && [raw.tripShortName, raw.displayName, cand.line].some(v => digits(v) === depDigits)) ||
+            (!depDigits && cand.mode === "train")
+          : lineKey(cand.line) === depKey || lineKey(raw.routeShortName) === depKey;
+        if (ok && diff < bestDiff) { best = cand; bestDiff = diff; }
+      }
+      if (best) {
+        used.add(best.tripId);
+        dep.tripId = best.tripId;
+        dep.rawStopTime = best.rawStopTime;
+        dep.stopId = dep.stopId || best.stopId;
+        dep.stopLatitude = Number.isFinite(dep.stopLatitude) ? dep.stopLatitude : best.stopLatitude;
+        dep.stopLongitude = Number.isFinite(dep.stopLongitude) ? dep.stopLongitude : best.stopLongitude;
+      }
+    }
+    return departures;
   }
 
   async function backendSearchPlaces(query, max = 10) {
@@ -93,8 +173,14 @@
   }
 
   async function planJourney(params = {}, options = {}) {
-    // Main server route works with older deployed backends, no v8 dependency.
-    return backendRequest("/api/v4/journeys", params, options.timeout || 25000);
+    // Eerst de eigen server; lukt dat niet, dan rechtstreeks Transitous.
+    if (API_BASE) {
+      try { return await backendRequest("/api/v4/journeys", params, options.timeout || 25000); }
+      catch (error) { console.warn("OVFlow backend journeys fallback:", error.message); }
+    }
+    const { response, data } = await transitousJson("plan", params, 20_000, { timeout: options.timeout || 25000 });
+    if (!response.ok) throw new Error(data?.message || data?.error || `Transitous routeplanner HTTP ${response.status}`);
+    return data;
   }
 
   function asArray(value) {
@@ -206,12 +292,16 @@
 
     const id = String(match.id || match.stopId || "");
     const modes = asArray(match.modes);
+    const mtype = String(match.type || "STOP").toUpperCase();
+    const street = String(match.street || "");
+    const addressName = mtype === "ADDRESS" && street ? `${street}${match.houseNumber ? " " + match.houseNumber : ""}` : "";
     return {
-      type: String(match.type || "STOP").toUpperCase() === "STOP" ? "stop" : "place",
+      type: mtype === "STOP" ? "stop" : mtype === "ADDRESS" ? "address" : "place",
+      kind: mtype,
       mode: modeFromTransitous("", modes),
       id,
       transitousId: id,
-      name: String(match.name || "Onbekende halte"),
+      name: String(addressName || match.name || "Onbekende halte"),
       municipality: municipalityFromMatch(match),
       street: String(match.street || ""),
       stopCode: String(match.stopCode || ""),
@@ -272,23 +362,19 @@
     };
   }
 
-  async function transitousGeocode(query, max = 10) {
-    const url = new URL(`${TRANSITOUS_BASE}/geocode`);
-    url.searchParams.set("text", query);
-    url.searchParams.set("type", "STOP");
-    url.searchParams.set("numResults", String(clamp(max, 1, 20)));
-    url.searchParams.set("language", "nl");
-    const { response, data } = await cachedJson(url, 45_000);
+  async function transitousGeocode(query, max = 10, types = "STOP") {
+    const { response, data } = await transitousJson("geocode", {
+      text: query, type: types, numResults: clamp(max, 1, 20), language: "nl",
+      place: "50.85,4.35", placeBias: "1"
+    }, 45_000);
     if (!response.ok) throw new Error(data?.message || `Transitous zoeken HTTP ${response.status}`);
     return asArray(data).map(normalizeMatch).filter(Boolean);
   }
 
   async function transitousReverseStops(lat, lon, max = 8) {
-    const url = new URL(`${TRANSITOUS_BASE}/reverse-geocode`);
-    url.searchParams.set("place", `${lat},${lon}`);
-    url.searchParams.set("type", "STOP");
-    url.searchParams.set("numResults", String(clamp(max, 1, 20)));
-    const { response, data } = await cachedJson(url, 15_000);
+    const { response, data } = await transitousJson("reverse-geocode", {
+      place: `${lat},${lon}`, type: "STOP", numResults: clamp(max, 1, 20)
+    }, 15_000);
     if (!response.ok) throw new Error(data?.message || `Transitous dichtbij HTTP ${response.status}`);
     return asArray(data).map(normalizeMatch).filter(Boolean);
   }
@@ -298,7 +384,8 @@
     time = null, windowSeconds = null, direction = "LATER", minimumEvents = null,
     exactRadius = false, fetchStops = false, arriveBy = false, both = false, timeout = 12000
   }) {
-    const url = new URL(`${TRANSITOUS_BASE}/stoptimes`);
+    const params = {};
+    const url = { searchParams: { set: (k, v) => { params[k] = v; } } };
     if (stopId) {
       url.searchParams.set("stopId", String(stopId));
     } else if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
@@ -326,8 +413,8 @@
     url.searchParams.set("withAlerts", "true");
     if (fetchStops) url.searchParams.set("fetchStops", "true");
 
-    const { response, data } = await cachedJson(url, 8_000, { timeout });
-    if (!response.ok) throw new Error(data?.message || `Transitous vertrekken HTTP ${response.status}`);
+    const { response, data } = await transitousJson("stoptimes", params, 8_000, { timeout });
+    if (!response.ok) throw new Error(data?.message || data?.error || `Transitous vertrekken HTTP ${response.status}`);
     const stopName = String(data?.place?.name || "");
     return {
       place: data?.place || null,
@@ -447,7 +534,8 @@
         if (data?.trip) return data.trip;
       } catch (error) { console.warn("OVFlow backend trip fallback:", error.message); }
     }
-    const url = new URL(`${TRANSITOUS_BASE}/trip`);
+    const params = {};
+    const url = { searchParams: { set: (k, v) => { params[k] = v; } } };
     url.searchParams.set("tripId", id);
     url.searchParams.set("withScheduledSkippedStops", "true");
     // Live Trip needs the stop sequence first. The full encoded route geometry
@@ -457,8 +545,8 @@
     url.searchParams.set("detailedLegs", String(Boolean(options.detailedLegs ?? false)));
     url.searchParams.set("joinInterlinedLegs", "false");
     const timeout = Math.max(2500, Math.min(12000, Number(options.timeout || 6500)));
-    const { response, data } = await cachedJson(url, 15_000, { timeout });
-    if (!response.ok) throw new Error(data?.message || `Transitous rit HTTP ${response.status}`);
+    const { response, data } = await transitousJson("trip", params, 15_000, { timeout });
+    if (!response.ok) throw new Error(data?.message || data?.error || `Transitous rit HTTP ${response.status}`);
     return data;
   }
 
@@ -572,9 +660,13 @@
       stop = { entity: String(stopOrEntity || ""), stop: String(maybeStopNumber || "") };
     }
 
-    if (API_BASE) {
-      try { return await backendStopDepartures(stop, max); }
-      catch (error) { console.warn("OVFlow backend departures fallback:", error.message); }
+    const ownId = String(stop.id || "");
+    const backendKnows = /^\d{1,3}[-:/]\d+$/.test(ownId) || /^BE\.NMBS/i.test(ownId) || stop.type === "station" || stop.mode === "train";
+    if (API_BASE && backendKnows) {
+      try {
+        const result = await backendStopDepartures(stop, max);
+        if (result.departures.length) return result;
+      } catch (error) { console.warn("OVFlow backend departures fallback:", error.message); }
     }
 
     const stopId = String(stop.transitousId || stop.id || "");
@@ -726,14 +818,30 @@
     };
   }
 
-  async function searchPlaces(query, max = 10) {
+  async function searchPlaces(query, max = 10, options = {}) {
     const q = String(query || "").trim();
     if (q.length < 2) return [];
-    if (API_BASE) {
-      try { return await backendSearchPlaces(q, max); }
-      catch (error) { console.warn("OVFlow backend search fallback:", error.message); }
+    // De eigen server kent De Lijn-haltes en NMBS-stations; Transitous kent
+    // daarnaast MIVB, TEC en adressen. Beide parallel, daarna samenvoegen.
+    const types = options.stopsOnly ? "STOP" : "STOP,ADDRESS,PLACE";
+    const [own, pub] = await Promise.allSettled([
+      API_BASE ? backendSearchPlaces(q, max) : Promise.resolve([]),
+      transitousGeocode(q, max, types)
+    ]);
+    const ownList = own.status === "fulfilled" ? own.value : [];
+    const pubList = pub.status === "fulfilled" ? pub.value.filter(p => !p.raw?.country || p.raw.country === "BE") : [];
+    if (!ownList.length && !pubList.length && own.status === "rejected" && pub.status === "rejected") {
+      throw own.reason || pub.reason;
     }
-    return transitousGeocode(q, max);
+    const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const out = [...ownList];
+    for (const p of pubList) {
+      // dubbele haltes/stations (zelfde naam, minder dan 400 m uit elkaar) overslaan
+      const dup = out.some(o => norm(o.name) === norm(p.name) && haversineMeters(o.lat, o.lon, p.lat, p.lon) < 400);
+      if (!dup) out.push(p);
+    }
+    const rank = p => p.type === "station" ? 0 : (p.type === "stop" ? 1 : p.type === "line" ? 3 : 2);
+    return out.sort((a, b) => rank(a) - rank(b)).slice(0, Math.max(max, 12));
   }
 
   async function detect() {
